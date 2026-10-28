@@ -1,11 +1,16 @@
 package com.example.localmusicplayer
 
+import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
-import android.media.MediaPlayer
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.IBinder
 import android.view.animation.LinearInterpolator
 import android.widget.SeekBar
 import android.widget.Toast
@@ -15,58 +20,96 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.localmusicplayer.databinding.ActivityMainBinding
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import java.util.Locale
-import kotlin.random.Random
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var mediaPlayer: MediaPlayer? = null
-    private var currentTrackIndex = 0
-    private var isPlaying = false
+    private var musicService: MusicService? = null
+    private var isBound = false
 
-    // Playback Modes: 0 = Loop List, 1 = Single Loop, 2 = Shuffle
-    private var playMode = 0
-
-    // Vinyl Disc Rotation Animator
     private lateinit var discAnimator: ObjectAnimator
 
-    private val handler = Handler(Looper.getMainLooper())
-    private val updateProgressRunnable = object : Runnable {
-        override fun run() {
-            mediaPlayer?.let { player ->
-                if (isPlaying) {
-                    val currentPos = player.currentPosition
-                    binding.seekBar.progress = currentPos
-                    binding.tvCurrentTime.text = formatTime(currentPos)
-                    handler.postDelayed(this, 500)
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as MusicService.MusicBinder
+            val s = binder.getService()
+            musicService = s
+            isBound = true
+
+            // 监听服务状态回调
+            s.onStateChangedListener = object : MusicService.OnStateChangedListener {
+                override fun onTrackChanged(song: Song, index: Int) {
+                    binding.tvSongTitle.text = song.title
+                    binding.tvArtist.text = song.artist
+                }
+
+                override fun onPlayStateChanged(isPlaying: Boolean) {
+                    if (isPlaying) {
+                        binding.btnPlayPause.setImageResource(R.drawable.ic_pause)
+                        if (discAnimator.isPaused) discAnimator.resume() else if (!discAnimator.isStarted) discAnimator.start()
+                    } else {
+                        binding.btnPlayPause.setImageResource(R.drawable.ic_play)
+                        discAnimator.pause()
+                    }
+                }
+
+                override fun onProgressUpdate(currentMs: Int, totalMs: Int) {
+                    binding.seekBar.max = totalMs
+                    binding.seekBar.progress = currentMs
+                    binding.tvCurrentTime.text = formatTime(currentMs)
+                    binding.tvTotalTime.text = formatTime(totalMs)
                 }
             }
+
+            // 初始化界面状态
+            val currentSong = s.getCurrentSong()
+            binding.tvSongTitle.text = currentSong.title
+            binding.tvArtist.text = currentSong.artist
+            val curPos = s.mediaPlayer?.currentPosition ?: 0
+            val dur = s.mediaPlayer?.duration ?: 0
+            binding.seekBar.max = dur
+            binding.seekBar.progress = curPos
+            binding.tvCurrentTime.text = formatTime(curPos)
+            binding.tvTotalTime.text = formatTime(dur)
+
+            if (s.isPlaying) {
+                binding.btnPlayPause.setImageResource(R.drawable.ic_pause)
+                if (!discAnimator.isStarted) discAnimator.start()
+            }
+            updateModeIcon(s.playMode)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            musicService = null
+            isBound = false
         }
     }
-
-    // Built-in audio tracks list
-   // 内置全新 10 首音频曲目
-    private val playlist = listOf(
-        Song(1, "爱很美", "SARA & 刘佳", R.raw.track_ai_hen_mei),
-        Song(2, "大火", "李佳薇", R.raw.track_da_huo),
-        Song(3, "可能否", "木小雅", R.raw.track_ke_neng_fou),
-        Song(4, "宁夏", "梁静茹", R.raw.track_ning_xia),
-        Song(5, "世界这么大还是遇见你", "程响", R.raw.track_shi_jie_zhe_me_da_hai_shi_yu_jian_ni),
-        Song(6, "听妈妈的话", "周杰伦", R.raw.track_ting_ma_ma_de_hua),
-        Song(7, "童话镇", "陈一发儿", R.raw.track_tong_hua_zhen),
-        Song(8, "我是如此相信", "周杰伦", R.raw.track_wo_shi_ru_ci_xiang_xin),
-        Song(9, "想见你想见你想见你", "八三夭", R.raw.track_xiang_jian_ni),
-        Song(10, "这就是爱吗？", "容祖儿", R.raw.track_zhe_jiu_shi_ai_ma)
-    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // 请求 Android 13+ 通知栏权限
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         setupDiscAnimation()
         setupListeners()
-        loadTrack(currentTrackIndex, autoPlay = false)
+        startAndBindService()
+    }
+
+    private fun startAndBindService() {
+        val serviceIntent = Intent(this, MusicService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
     private fun setupDiscAnimation() {
@@ -78,45 +121,30 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        // Play / Pause
+        // 播放 / 暂停
         binding.btnPlayPause.setOnClickListener {
-            if (isPlaying) {
-                pausePlayback()
-            } else {
-                startPlayback()
-            }
+            musicService?.togglePlayPause()
         }
 
-        // Previous
+        // 上一首
         binding.btnPrevious.setOnClickListener {
-            playPreviousTrack()
+            musicService?.playPrevious()
         }
 
-        // Next
+        // 下一首
         binding.btnNext.setOnClickListener {
-            playNextTrack()
+            musicService?.playNext()
         }
 
-        // Mode switch
+        // 播放模式切换
         binding.btnMode.setOnClickListener {
-            playMode = (playMode + 1) % 3
-            when (playMode) {
-                0 -> {
-                    binding.btnMode.setImageResource(R.drawable.ic_repeat)
-                    Toast.makeText(this, "列表循环", Toast.LENGTH_SHORT).show()
-                }
-                1 -> {
-                    binding.btnMode.setImageResource(R.drawable.ic_repeat_one)
-                    Toast.makeText(this, "单曲循环", Toast.LENGTH_SHORT).show()
-                }
-                2 -> {
-                    binding.btnMode.setImageResource(R.drawable.ic_shuffle)
-                    Toast.makeText(this, "随机播放", Toast.LENGTH_SHORT).show()
-                }
+            musicService?.let { s ->
+                s.playMode = (s.playMode + 1) % 3
+                updateModeIcon(s.playMode)
             }
         }
 
-        // SeekBar dragging
+        // 进度条拖拽
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
@@ -124,133 +152,46 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                handler.removeCallbacks(updateProgressRunnable)
-            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
 
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 seekBar?.let {
-                    mediaPlayer?.seekTo(it.progress)
-                    if (isPlaying) {
-                        handler.post(updateProgressRunnable)
-                    }
+                    musicService?.seekTo(it.progress)
                 }
             }
         })
 
-        // Playlist Dialog
+        // 弹出歌单
         binding.btnPlaylist.setOnClickListener {
             showPlaylistBottomSheet()
         }
     }
 
-    private fun loadTrack(index: Int, autoPlay: Boolean) {
-        currentTrackIndex = index
-        val song = playlist[currentTrackIndex]
-
-        binding.tvSongTitle.text = song.title
-        binding.tvArtist.text = song.artist
-
-        // Release old player
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        mediaPlayer = null
-
-        // Initialize MediaPlayer with raw resource
-        mediaPlayer = MediaPlayer.create(this, song.rawResId).apply {
-            setOnCompletionListener {
-                onTrackCompleted()
+    private fun updateModeIcon(mode: Int) {
+        when (mode) {
+            0 -> {
+                binding.btnMode.setImageResource(R.drawable.ic_repeat)
+                Toast.makeText(this, "列表循环", Toast.LENGTH_SHORT).show()
             }
-        }
-
-        mediaPlayer?.let { player ->
-            val duration = player.duration
-            binding.seekBar.max = duration
-            binding.seekBar.progress = 0
-            binding.tvCurrentTime.text = "00:00"
-            binding.tvTotalTime.text = formatTime(duration)
-
-            if (autoPlay) {
-                startPlayback()
-            } else {
-                pausePlaybackUI()
-            }
-        }
-    }
-
-    private fun startPlayback() {
-        mediaPlayer?.let { player ->
-            player.start()
-            isPlaying = true
-            binding.btnPlayPause.setImageResource(R.drawable.ic_pause)
-            if (discAnimator.isPaused) {
-                discAnimator.resume()
-            } else if (!discAnimator.isStarted) {
-                discAnimator.start()
-            }
-            handler.post(updateProgressRunnable)
-        }
-    }
-
-    private fun pausePlayback() {
-        mediaPlayer?.let { player ->
-            if (player.isPlaying) {
-                player.pause()
-            }
-            pausePlaybackUI()
-        }
-    }
-
-    private fun pausePlaybackUI() {
-        isPlaying = false
-        binding.btnPlayPause.setImageResource(R.drawable.ic_play)
-        discAnimator.pause()
-        handler.removeCallbacks(updateProgressRunnable)
-    }
-
-    private fun playNextTrack() {
-        val nextIndex = when (playMode) {
-            2 -> Random.nextInt(playlist.size)
-            else -> (currentTrackIndex + 1) % playlist.size
-        }
-        loadTrack(nextIndex, autoPlay = true)
-    }
-
-    private fun playPreviousTrack() {
-        val prevIndex = if (currentTrackIndex - 1 < 0) {
-            playlist.size - 1
-        } else {
-            currentTrackIndex - 1
-        }
-        loadTrack(prevIndex, autoPlay = true)
-    }
-
-    private fun onTrackCompleted() {
-        when (playMode) {
             1 -> {
-                // Single loop: replay current song
-                mediaPlayer?.seekTo(0)
-                startPlayback()
+                binding.btnMode.setImageResource(R.drawable.ic_repeat_one)
+                Toast.makeText(this, "单曲循环", Toast.LENGTH_SHORT).show()
             }
             2 -> {
-                // Shuffle
-                val randIndex = Random.nextInt(playlist.size)
-                loadTrack(randIndex, autoPlay = true)
-            }
-            else -> {
-                // Loop list
-                playNextTrack()
+                binding.btnMode.setImageResource(R.drawable.ic_shuffle)
+                Toast.makeText(this, "随机播放", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun showPlaylistBottomSheet() {
+        val s = musicService ?: return
         val dialog = BottomSheetDialog(this)
         val dialogView = layoutInflater.inflate(R.layout.dialog_playlist, null)
         val rvPlaylist = dialogView.findViewById<RecyclerView>(R.id.rvPlaylist)
 
-        val adapter = SongAdapter(playlist, currentTrackIndex) { selectedIndex ->
-            loadTrack(selectedIndex, autoPlay = true)
+        val adapter = SongAdapter(s.playlist, s.currentTrackIndex) { selectedIndex ->
+            s.loadTrack(selectedIndex, autoPlay = true)
             dialog.dismiss()
         }
 
@@ -270,9 +211,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        handler.removeCallbacks(updateProgressRunnable)
-        mediaPlayer?.release()
-        mediaPlayer = null
+        if (isBound) {
+            musicService?.onStateChangedListener = null
+            unbindService(serviceConnection)
+            isBound = false
+        }
         discAnimator.cancel()
     }
 }
