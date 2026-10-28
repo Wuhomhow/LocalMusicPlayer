@@ -23,8 +23,8 @@ class MusicService : Service() {
     var currentTrackIndex = 0
     var isPlaying = false
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
+    var currentSpeed = 1.0f // 播放倍速
 
-    // 睡眠定时器相关状态
     var sleepRemainingSeconds: Int = 0
     var stopAfterCurrentTrack: Boolean = false
 
@@ -36,6 +36,7 @@ class MusicService : Service() {
         fun onProgressUpdate(currentMs: Int, totalMs: Int)
         fun onPlaylistUpdated()
         fun onSleepTimerTick(remainingSeconds: Int)
+        fun onSpeedChanged(speed: Float)
     }
 
     val playlist = mutableListOf(
@@ -66,7 +67,6 @@ class MusicService : Service() {
         }
     }
 
-    // 睡眠倒计时轮询
     private val sleepTimerRunnable = object : Runnable {
         override fun run() {
             if (sleepRemainingSeconds > 0) {
@@ -102,6 +102,18 @@ class MusicService : Service() {
             ACTION_TOGGLE -> togglePlayPause()
         }
         return START_NOT_STICKY
+    }
+
+    fun setSpeed(speed: Float) {
+        currentSpeed = speed
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            mediaPlayer?.let { player ->
+                val playing = player.isPlaying
+                player.playbackParams = player.playbackParams.setSpeed(currentSpeed)
+                if (!playing) player.pause()
+            }
+        }
+        onStateChangedListener?.onSpeedChanged(currentSpeed)
     }
 
     fun startSleepTimer(minutes: Int) {
@@ -145,6 +157,10 @@ class MusicService : Service() {
                 mediaPlayer = MediaPlayer.create(this, song.rawResId).apply {
                     setOnCompletionListener { onTrackCompletion() }
                 }
+            }
+            // 恢复当前倍速
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && currentSpeed != 1.0f) {
+                mediaPlayer?.let { it.playbackParams = it.playbackParams.setSpeed(currentSpeed) }
             }
         } catch (e: Exception) {
             e.printStackTrace()
