@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_dark"
@@ -12,13 +11,26 @@
         android:id="@+id/tvHeader"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="@string/playing_now"
+        android:text="本地音乐播放器"
         android:textColor="@color/text_secondary"
         android:textSize="14sp"
         android:letterSpacing="0.1"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- 扫描手机本地音乐按钮 -->
+    <Button
+        android:id="@+id/btnScanLocal"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="扫描本地"
+        android:textColor="@color/accent_green"
+        android:textSize="12sp"
+        app:layout_constraintBottom_toBottomOf="@+id/tvHeader"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/tvHeader" />
 
     <!-- Vinyl Disc Graphic -->
     <ImageView
@@ -45,7 +57,7 @@
         android:ellipsize="end"
         android:gravity="center"
         android:maxLines="1"
-        android:text="星空漫游 (Starlight)"
+        android:text="音乐标题"
         android:textColor="@color/text_primary"
         android:textSize="22sp"
         android:textStyle="bold"
@@ -58,7 +70,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="28dp"
-        android:text="内置无损本地音频"
+        android:text="歌手"
         android:textColor="@color/text_secondary"
         android:textSize="15sp"
         app:layout_constraintBottom_toTopOf="@+id/seekBar"
@@ -115,7 +127,6 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <!-- Mode Toggle (Loop / Single / Shuffle) -->
         <ImageButton
             android:id="@+id/btnMode"
             android:layout_width="44dp"
@@ -130,7 +141,6 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <!-- Previous Track -->
         <ImageButton
             android:id="@+id/btnPrevious"
             android:layout_width="48dp"
@@ -144,7 +154,6 @@
             android:layout_width="20dp"
             android:layout_height="1dp" />
 
-        <!-- Play / Pause -->
         <ImageButton
             android:id="@+id/btnPlayPause"
             android:layout_width="64dp"
@@ -158,7 +167,6 @@
             android:layout_width="20dp"
             android:layout_height="1dp" />
 
-        <!-- Next Track -->
         <ImageButton
             android:id="@+id/btnNext"
             android:layout_width="48dp"
@@ -173,7 +181,6 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <!-- Playlist -->
         <ImageButton
             android:id="@+id/btnPlaylist"
             android:layout_width="44dp"
