@@ -45,10 +45,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Built-in audio tracks list
+   // 内置全新 10 首音频曲目
     private val playlist = listOf(
-        Song(1, "星空漫游 (Starlight)", "内置轻音乐", R.raw.track_starlight),
-        Song(2, "微风轻抚 (Gentle Breeze)", "内置吉他旋律", R.raw.track_breeze),
-        Song(3, "夏夜旋律 (Summer Night)", "内置放松音律", R.raw.track_summer)
+        Song(1, "爱很美", "SARA & 刘佳", R.raw.track_ai_hen_mei),
+        Song(2, "大火", "李佳薇", R.raw.track_da_huo),
+        Song(3, "可能否", "木小雅", R.raw.track_ke_neng_fou),
+        Song(4, "宁夏", "梁静茹", R.raw.track_ning_xia),
+        Song(5, "世界这么大还是遇见你", "程响", R.raw.track_shi_jie_zhe_me_da_hai_shi_yu_jian_ni),
+        Song(6, "听妈妈的话", "周杰伦", R.raw.track_ting_ma_ma_de_hua),
+        Song(7, "童话镇", "陈一发儿", R.raw.track_tong_hua_zhen),
+        Song(8, "我是如此相信", "周杰伦", R.raw.track_wo_shi_ru_ci_xiang_xin),
+        Song(9, "想见你想见你想见你", "八三夭", R.raw.track_xiang_jian_ni),
+        Song(10, "这就是爱吗？", "容祖儿", R.raw.track_zhe_jiu_shi_ai_ma)
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
