@@ -14,10 +14,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.MediaStore
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
+import android.widget.EditText
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -38,11 +41,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var discAnimator: ObjectAnimator
 
-    // 歌词列表与适配器
     private var lyricEntries: List<LyricEntry> = emptyList()
     private lateinit var lyricAdapter: LyricAdapter
     private var currentLyricIndex = -1
     private var isLyricsVisible = false
+
+    // 支持切换的倍速列表
+    private val speedList = listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -83,6 +88,10 @@ class MainActivity : AppCompatActivity() {
                 override fun onSleepTimerTick(remainingSeconds: Int) {
                     updateSleepTimerButton(remainingSeconds)
                 }
+
+                override fun onSpeedChanged(speed: Float) {
+                    binding.btnSpeed.text = "${speed}x"
+                }
             }
 
             s.getCurrentSong()?.let { currentSong ->
@@ -102,6 +111,7 @@ class MainActivity : AppCompatActivity() {
                 if (!discAnimator.isStarted) discAnimator.start()
             }
             updateModeIcon(s.playMode)
+            binding.btnSpeed.text = "${s.currentSpeed}x"
 
             if (s.stopAfterCurrentTrack) {
                 binding.btnSleepTimer.text = "播完停"
@@ -139,12 +149,10 @@ class MainActivity : AppCompatActivity() {
         binding.rvLyrics.layoutManager = LinearLayoutManager(this)
         binding.rvLyrics.adapter = lyricAdapter
 
-        // 点击黑胶唱片：切换显示歌词
         binding.ivVinylDisc.setOnClickListener {
             toggleDiscAndLyrics(showLyrics = true)
         }
 
-        // 点击歌词区域：切换回黑胶唱片
         binding.rvLyrics.setOnClickListener {
             toggleDiscAndLyrics(showLyrics = false)
         }
@@ -224,6 +232,16 @@ class MainActivity : AppCompatActivity() {
             musicService?.let { s ->
                 s.playMode = (s.playMode + 1) % 3
                 updateModeIcon(s.playMode)
+            }
+        }
+
+        // 点击倍速按钮循环切换
+        binding.btnSpeed.setOnClickListener {
+            musicService?.let { s ->
+                val nextIdx = (speedList.indexOf(s.currentSpeed) + 1) % speedList.size
+                val nextSpeed = speedList[nextIdx]
+                s.setSpeed(nextSpeed)
+                Toast.makeText(this, "播放倍速已设为 ${nextSpeed}x", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -365,14 +383,28 @@ class MainActivity : AppCompatActivity() {
         val dialog = BottomSheetDialog(this)
         val dialogView = layoutInflater.inflate(R.layout.dialog_playlist, null)
         val rvPlaylist = dialogView.findViewById<RecyclerView>(R.id.rvPlaylist)
+        val etSearch = dialogView.findViewById<EditText>(R.id.etSearchSong)
 
-        val adapter = SongAdapter(s.playlist, s.currentTrackIndex) { selectedIndex ->
-            s.loadTrack(selectedIndex, autoPlay = true)
+        val currentId = s.getCurrentSong()?.id ?: -1L
+        val adapter = SongAdapter(s.playlist, currentId) { selectedSong ->
+            val actualIdx = s.playlist.indexOfFirst { it.id == selectedSong.id }
+            if (actualIdx >= 0) {
+                s.loadTrack(actualIdx, autoPlay = true)
+            }
             dialog.dismiss()
         }
 
         rvPlaylist.layoutManager = LinearLayoutManager(this)
         rvPlaylist.adapter = adapter
+
+        // 监听搜索框输入，实时过滤歌曲
+        etSearch.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                adapter.filter(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
 
         dialog.setContentView(dialogView)
         dialog.show()
@@ -395,7 +427,6 @@ class MainActivity : AppCompatActivity() {
         discAnimator.cancel()
     }
 
-    // 歌词列表内部适配器
     inner class LyricAdapter : RecyclerView.Adapter<LyricAdapter.LyricViewHolder>() {
         private var entries: List<LyricEntry> = emptyList()
         private var highlightedPosition = -1
