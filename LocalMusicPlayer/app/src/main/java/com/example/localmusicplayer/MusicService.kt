@@ -24,6 +24,10 @@ class MusicService : Service() {
     var isPlaying = false
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
 
+    // 睡眠定时器相关状态
+    var sleepRemainingSeconds: Int = 0
+    var stopAfterCurrentTrack: Boolean = false
+
     var onStateChangedListener: OnStateChangedListener? = null
 
     interface OnStateChangedListener {
@@ -31,9 +35,9 @@ class MusicService : Service() {
         fun onPlayStateChanged(isPlaying: Boolean)
         fun onProgressUpdate(currentMs: Int, totalMs: Int)
         fun onPlaylistUpdated()
+        fun onSleepTimerTick(remainingSeconds: Int)
     }
 
-    // 可变歌单（支持内置歌曲 + 手机本地扫描导入）
     val playlist = mutableListOf(
         Song(1, "爱很美", "SARA & 刘佳", rawResId = R.raw.track_ai_hen_mei),
         Song(2, "大火", "李佳薇", rawResId = R.raw.track_da_huo),
@@ -48,6 +52,7 @@ class MusicService : Service() {
     )
 
     private val handler = Handler(Looper.getMainLooper())
+
     private val progressRunnable = object : Runnable {
         override fun run() {
             mediaPlayer?.let { player ->
@@ -56,6 +61,22 @@ class MusicService : Service() {
                     val dur = player.duration
                     onStateChangedListener?.onProgressUpdate(cur, dur)
                     handler.postDelayed(this, 500)
+                }
+            }
+        }
+    }
+
+    // 睡眠倒计时轮询
+    private val sleepTimerRunnable = object : Runnable {
+        override fun run() {
+            if (sleepRemainingSeconds > 0) {
+                sleepRemainingSeconds--
+                onStateChangedListener?.onSleepTimerTick(sleepRemainingSeconds)
+                if (sleepRemainingSeconds <= 0) {
+                    pause()
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                } else {
+                    handler.postDelayed(this, 1000)
                 }
             }
         }
@@ -83,6 +104,27 @@ class MusicService : Service() {
         return START_NOT_STICKY
     }
 
+    fun startSleepTimer(minutes: Int) {
+        stopAfterCurrentTrack = false
+        handler.removeCallbacks(sleepTimerRunnable)
+        sleepRemainingSeconds = minutes * 60
+        onStateChangedListener?.onSleepTimerTick(sleepRemainingSeconds)
+        handler.post(sleepTimerRunnable)
+    }
+
+    fun setStopAfterCurrent(enable: Boolean) {
+        handler.removeCallbacks(sleepTimerRunnable)
+        sleepRemainingSeconds = 0
+        stopAfterCurrentTrack = enable
+    }
+
+    fun cancelSleepTimer() {
+        stopAfterCurrentTrack = false
+        handler.removeCallbacks(sleepTimerRunnable)
+        sleepRemainingSeconds = 0
+        onStateChangedListener?.onSleepTimerTick(0)
+    }
+
     fun loadTrack(index: Int, autoPlay: Boolean) {
         if (playlist.isEmpty()) return
         currentTrackIndex = (index + playlist.size) % playlist.size
@@ -94,14 +136,12 @@ class MusicService : Service() {
 
         try {
             if (song.uriString != null) {
-                // 播放手机本地音频文件
                 mediaPlayer = MediaPlayer().apply {
                     setDataSource(this@MusicService, Uri.parse(song.uriString))
                     prepare()
                     setOnCompletionListener { onTrackCompletion() }
                 }
             } else {
-                // 播放内置 raw 音频
                 mediaPlayer = MediaPlayer.create(this, song.rawResId).apply {
                     setOnCompletionListener { onTrackCompletion() }
                 }
@@ -169,7 +209,6 @@ class MusicService : Service() {
     fun getCurrentSong(): Song? = if (playlist.isNotEmpty()) playlist[currentTrackIndex] else null
 
     fun addLocalSongs(newSongs: List<Song>) {
-        // 去重合并
         val existingUris = playlist.mapNotNull { it.uriString }.toSet()
         val toAdd = newSongs.filter { it.uriString !in existingUris }
         if (toAdd.isNotEmpty()) {
@@ -179,6 +218,13 @@ class MusicService : Service() {
     }
 
     private fun onTrackCompletion() {
+        if (stopAfterCurrentTrack) {
+            stopAfterCurrentTrack = false
+            pause()
+            onStateChangedListener?.onSleepTimerTick(0)
+            return
+        }
+
         when (playMode) {
             1 -> {
                 mediaPlayer?.seekTo(0)
@@ -254,6 +300,7 @@ class MusicService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(progressRunnable)
+        handler.removeCallbacks(sleepTimerRunnable)
         mediaPlayer?.release()
         mediaPlayer = null
     }
