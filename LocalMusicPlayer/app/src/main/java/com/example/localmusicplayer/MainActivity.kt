@@ -4,6 +4,7 @@ import android.Manifest
 import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.ComponentName
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
@@ -11,6 +12,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.MediaStore
 import android.view.animation.LinearInterpolator
 import android.widget.SeekBar
 import android.widget.Toast
@@ -36,7 +38,6 @@ class MainActivity : AppCompatActivity() {
             musicService = s
             isBound = true
 
-            // 监听服务状态回调
             s.onStateChangedListener = object : MusicService.OnStateChangedListener {
                 override fun onTrackChanged(song: Song, index: Int) {
                     binding.tvSongTitle.text = song.title
@@ -59,12 +60,16 @@ class MainActivity : AppCompatActivity() {
                     binding.tvCurrentTime.text = formatTime(currentMs)
                     binding.tvTotalTime.text = formatTime(totalMs)
                 }
+
+                override fun onPlaylistUpdated() {
+                    Toast.makeText(this@MainActivity, "歌单已更新，共 ${s.playlist.size} 首歌曲", Toast.LENGTH_SHORT).show()
+                }
             }
 
-            // 初始化界面状态
-            val currentSong = s.getCurrentSong()
-            binding.tvSongTitle.text = currentSong.title
-            binding.tvArtist.text = currentSong.artist
+            s.getCurrentSong()?.let { currentSong ->
+                binding.tvSongTitle.text = currentSong.title
+                binding.tvArtist.text = currentSong.artist
+            }
             val curPos = s.mediaPlayer?.currentPosition ?: 0
             val dur = s.mediaPlayer?.duration ?: 0
             binding.seekBar.max = dur
@@ -90,7 +95,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 请求 Android 13+ 通知栏权限
+        // 请求通知栏权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
@@ -121,22 +126,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupListeners() {
-        // 播放 / 暂停
         binding.btnPlayPause.setOnClickListener {
             musicService?.togglePlayPause()
         }
 
-        // 上一首
         binding.btnPrevious.setOnClickListener {
             musicService?.playPrevious()
         }
 
-        // 下一首
         binding.btnNext.setOnClickListener {
             musicService?.playNext()
         }
 
-        // 播放模式切换
         binding.btnMode.setOnClickListener {
             musicService?.let { s ->
                 s.playMode = (s.playMode + 1) % 3
@@ -144,7 +145,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 进度条拖拽
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
@@ -161,9 +161,74 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // 弹出歌单
         binding.btnPlaylist.setOnClickListener {
             showPlaylistBottomSheet()
+        }
+
+        // 点击“扫描本地”按钮
+        binding.btnScanLocal.setOnClickListener {
+            checkStoragePermissionAndScan()
+        }
+    }
+
+    private fun checkStoragePermissionAndScan() {
+        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Manifest.permission.READ_MEDIA_AUDIO
+        } else {
+            Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+
+        if (checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED) {
+            scanDeviceAudioFiles()
+        } else {
+            requestPermissions(arrayOf(permission), 202)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 202 && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            scanDeviceAudioFiles()
+        }
+    }
+
+    // 扫描手机媒体库
+    private fun scanDeviceAudioFiles() {
+        val localList = mutableListOf<Song>()
+        val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.DURATION
+        )
+        // 过滤掉小于 30 秒的短音频（避免把手机按键声、提示音扫进来）
+        val selection = "${MediaStore.Audio.Media.DURATION} >= 30000"
+
+        try {
+            contentResolver.query(uri, projection, selection, null, "${MediaStore.Audio.Media.TITLE} ASC")?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idCol)
+                    val title = cursor.getString(titleCol) ?: "未知曲目"
+                    val artist = cursor.getString(artistCol) ?: "本地音频"
+                    val contentUri = ContentUris.withAppendedId(uri, id).toString()
+                    localList.add(Song(id = id, title = title, artist = artist, uriString = contentUri))
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(this, "扫描失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (localList.isEmpty()) {
+            Toast.makeText(this, "未在手机存储中找到时长大于30秒的歌曲", Toast.LENGTH_SHORT).show()
+        } else {
+            musicService?.addLocalSongs(localList)
         }
     }
 
