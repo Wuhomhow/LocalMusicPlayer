@@ -45,7 +45,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/tvHeader" />
 
-    <!-- 中间交互区：黑胶唱片与歌词滚动（点击可相互切换） -->
+    <!-- 中间交互区：黑胶唱片与歌词滚动 -->
     <FrameLayout
         android:id="@+id/containerCenter"
         android:layout_width="0dp"
@@ -57,7 +57,6 @@
         app:layout_constraintTop_toBottomOf="@+id/tvHeader"
         app:layout_constraintVertical_bias="0.3">
 
-        <!-- 黑胶唱片 -->
         <ImageView
             android:id="@+id/ivVinylDisc"
             android:layout_width="260dp"
@@ -66,7 +65,6 @@
             android:contentDescription="唱片封面"
             android:src="@drawable/bg_vinyl" />
 
-        <!-- 歌词滚动列表（默认隐藏，点击唱片显示） -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvLyrics"
             android:layout_width="match_parent"
@@ -161,13 +159,14 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
+        <!-- 播放模式 -->
         <ImageButton
             android:id="@+id/btnMode"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="播放模式"
-            android:padding="8dp"
+            android:padding="6dp"
             android:src="@drawable/ic_repeat" />
 
         <Space
@@ -175,6 +174,7 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
+        <!-- 上一首 -->
         <ImageButton
             android:id="@+id/btnPrevious"
             android:layout_width="48dp"
@@ -185,9 +185,10 @@
             android:src="@drawable/ic_skip_previous" />
 
         <Space
-            android:layout_width="20dp"
+            android:layout_width="16dp"
             android:layout_height="1dp" />
 
+        <!-- 播放/暂停 -->
         <ImageButton
             android:id="@+id/btnPlayPause"
             android:layout_width="64dp"
@@ -198,9 +199,10 @@
             android:src="@drawable/ic_play" />
 
         <Space
-            android:layout_width="20dp"
+            android:layout_width="16dp"
             android:layout_height="1dp" />
 
+        <!-- 下一首 -->
         <ImageButton
             android:id="@+id/btnNext"
             android:layout_width="48dp"
@@ -215,13 +217,31 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
+        <!-- 倍速切换按钮 (1.0x) -->
+        <Button
+            android:id="@+id/btnSpeed"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:minWidth="44dp"
+            android:padding="0dp"
+            android:text="1.0x"
+            android:textColor="@color/accent_green"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="8dp"
+            android:layout_height="1dp" />
+
+        <!-- 播放列表 -->
         <ImageButton
             android:id="@+id/btnPlaylist"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="播放列表"
-            android:padding="8dp"
+            android:padding="6dp"
             android:src="@drawable/ic_playlist" />
 
     </LinearLayout>
