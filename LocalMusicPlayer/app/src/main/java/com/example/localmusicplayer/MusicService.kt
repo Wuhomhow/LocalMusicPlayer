@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -29,20 +30,21 @@ class MusicService : Service() {
         fun onTrackChanged(song: Song, index: Int)
         fun onPlayStateChanged(isPlaying: Boolean)
         fun onProgressUpdate(currentMs: Int, totalMs: Int)
+        fun onPlaylistUpdated()
     }
 
-    // 10 首内置经典曲目
-    val playlist = listOf(
-        Song(1, "爱很美", "SARA & 刘佳", R.raw.track_ai_hen_mei),
-        Song(2, "大火", "李佳薇", R.raw.track_da_huo),
-        Song(3, "可能否", "木小雅", R.raw.track_ke_neng_fou),
-        Song(4, "宁夏", "梁静茹", R.raw.track_ning_xia),
-        Song(5, "世界这么大还是遇见你", "程响", R.raw.track_shi_jie_zhe_me_da_hai_shi_yu_jian_ni),
-        Song(6, "听妈妈的话", "周杰伦", R.raw.track_ting_ma_ma_de_hua),
-        Song(7, "童话镇", "陈一发儿", R.raw.track_tong_hua_zhen),
-        Song(8, "我是如此相信", "周杰伦", R.raw.track_wo_shi_ru_ci_xiang_xin),
-        Song(9, "想见你想见你想见你", "八三夭", R.raw.track_xiang_jian_ni),
-        Song(10, "这就是爱吗？", "容祖儿", R.raw.track_zhe_jiu_shi_ai_ma)
+    // 可变歌单（支持内置歌曲 + 手机本地扫描导入）
+    val playlist = mutableListOf(
+        Song(1, "爱很美", "SARA & 刘佳", rawResId = R.raw.track_ai_hen_mei),
+        Song(2, "大火", "李佳薇", rawResId = R.raw.track_da_huo),
+        Song(3, "可能否", "木小雅", rawResId = R.raw.track_ke_neng_fou),
+        Song(4, "宁夏", "梁静茹", rawResId = R.raw.track_ning_xia),
+        Song(5, "世界这么大还是遇见你", "程响", rawResId = R.raw.track_shi_jie_zhe_me_da_hai_shi_yu_jian_ni),
+        Song(6, "听妈妈的话", "周杰伦", rawResId = R.raw.track_ting_ma_ma_de_hua),
+        Song(7, "童话镇", "陈一发儿", rawResId = R.raw.track_tong_hua_zhen),
+        Song(8, "我是如此相信", "周杰伦", rawResId = R.raw.track_wo_shi_ru_ci_xiang_xin),
+        Song(9, "想见你想见你想见你", "八三夭", rawResId = R.raw.track_xiang_jian_ni),
+        Song(10, "这就是爱吗？", "容祖儿", rawResId = R.raw.track_zhe_jiu_shi_ai_ma)
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -82,6 +84,7 @@ class MusicService : Service() {
     }
 
     fun loadTrack(index: Int, autoPlay: Boolean) {
+        if (playlist.isEmpty()) return
         currentTrackIndex = (index + playlist.size) % playlist.size
         val song = playlist[currentTrackIndex]
 
@@ -89,10 +92,23 @@ class MusicService : Service() {
         mediaPlayer?.release()
         mediaPlayer = null
 
-        mediaPlayer = MediaPlayer.create(this, song.rawResId).apply {
-            setOnCompletionListener {
-                onTrackCompletion()
+        try {
+            if (song.uriString != null) {
+                // 播放手机本地音频文件
+                mediaPlayer = MediaPlayer().apply {
+                    setDataSource(this@MusicService, Uri.parse(song.uriString))
+                    prepare()
+                    setOnCompletionListener { onTrackCompletion() }
+                }
+            } else {
+                // 播放内置 raw 音频
+                mediaPlayer = MediaPlayer.create(this, song.rawResId).apply {
+                    setOnCompletionListener { onTrackCompletion() }
+                }
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return
         }
 
         val totalMs = mediaPlayer?.duration ?: 0
@@ -107,6 +123,7 @@ class MusicService : Service() {
     }
 
     fun play() {
+        if (playlist.isEmpty()) return
         if (mediaPlayer == null) {
             loadTrack(currentTrackIndex, autoPlay = true)
             return
@@ -131,6 +148,7 @@ class MusicService : Service() {
     }
 
     fun playNext() {
+        if (playlist.isEmpty()) return
         val nextIndex = when (playMode) {
             2 -> Random.nextInt(playlist.size)
             else -> (currentTrackIndex + 1) % playlist.size
@@ -139,6 +157,7 @@ class MusicService : Service() {
     }
 
     fun playPrevious() {
+        if (playlist.isEmpty()) return
         val prevIndex = if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
         loadTrack(prevIndex, autoPlay = true)
     }
@@ -147,7 +166,17 @@ class MusicService : Service() {
         mediaPlayer?.seekTo(positionMs)
     }
 
-    fun getCurrentSong(): Song = playlist[currentTrackIndex]
+    fun getCurrentSong(): Song? = if (playlist.isNotEmpty()) playlist[currentTrackIndex] else null
+
+    fun addLocalSongs(newSongs: List<Song>) {
+        // 去重合并
+        val existingUris = playlist.mapNotNull { it.uriString }.toSet()
+        val toAdd = newSongs.filter { it.uriString !in existingUris }
+        if (toAdd.isNotEmpty()) {
+            playlist.addAll(toAdd)
+            onStateChangedListener?.onPlaylistUpdated()
+        }
+    }
 
     private fun onTrackCompletion() {
         when (playMode) {
@@ -170,7 +199,7 @@ class MusicService : Service() {
                 "音乐播放控制",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "通知栏快捷播放/切歌控制"
+                description = "通知栏快捷控制"
                 setShowBadge(false)
             }
             val manager = getSystemService(NotificationManager::class.java)
@@ -179,7 +208,7 @@ class MusicService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val song = playlist[currentTrackIndex]
+        val song = getCurrentSong() ?: Song(0, "本地音乐播放器", "无曲目")
 
         val openActivityIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
