@@ -9,12 +9,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.MediaStore
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
 import android.widget.SeekBar
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -33,6 +38,12 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var discAnimator: ObjectAnimator
 
+    // 歌词列表与适配器
+    private var lyricEntries: List<LyricEntry> = emptyList()
+    private lateinit var lyricAdapter: LyricAdapter
+    private var currentLyricIndex = -1
+    private var isLyricsVisible = false
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as MusicService.MusicBinder
@@ -44,6 +55,7 @@ class MainActivity : AppCompatActivity() {
                 override fun onTrackChanged(song: Song, index: Int) {
                     binding.tvSongTitle.text = song.title
                     binding.tvArtist.text = song.artist
+                    loadLyricsForSong(song.title)
                 }
 
                 override fun onPlayStateChanged(isPlaying: Boolean) {
@@ -61,6 +73,7 @@ class MainActivity : AppCompatActivity() {
                     binding.seekBar.progress = currentMs
                     binding.tvCurrentTime.text = formatTime(currentMs)
                     binding.tvTotalTime.text = formatTime(totalMs)
+                    syncLyricProgress(currentMs.toLong())
                 }
 
                 override fun onPlaylistUpdated() {
@@ -75,6 +88,7 @@ class MainActivity : AppCompatActivity() {
             s.getCurrentSong()?.let { currentSong ->
                 binding.tvSongTitle.text = currentSong.title
                 binding.tvArtist.text = currentSong.artist
+                loadLyricsForSong(currentSong.title)
             }
             val curPos = s.mediaPlayer?.currentPosition ?: 0
             val dur = s.mediaPlayer?.duration ?: 0
@@ -89,7 +103,6 @@ class MainActivity : AppCompatActivity() {
             }
             updateModeIcon(s.playMode)
 
-            // 同步定时关闭按钮状态
             if (s.stopAfterCurrentTrack) {
                 binding.btnSleepTimer.text = "播完停"
                 binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_green))
@@ -109,7 +122,6 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 请求通知栏权限
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
@@ -117,8 +129,64 @@ class MainActivity : AppCompatActivity() {
         }
 
         setupDiscAnimation()
+        setupLyricsView()
         setupListeners()
         startAndBindService()
+    }
+
+    private fun setupLyricsView() {
+        lyricAdapter = LyricAdapter()
+        binding.rvLyrics.layoutManager = LinearLayoutManager(this)
+        binding.rvLyrics.adapter = lyricAdapter
+
+        // 点击黑胶唱片：切换显示歌词
+        binding.ivVinylDisc.setOnClickListener {
+            toggleDiscAndLyrics(showLyrics = true)
+        }
+
+        // 点击歌词区域：切换回黑胶唱片
+        binding.rvLyrics.setOnClickListener {
+            toggleDiscAndLyrics(showLyrics = false)
+        }
+    }
+
+    private fun toggleDiscAndLyrics(showLyrics: Boolean) {
+        isLyricsVisible = showLyrics
+        if (showLyrics) {
+            binding.ivVinylDisc.visibility = View.GONE
+            binding.rvLyrics.visibility = View.VISIBLE
+            if (currentLyricIndex >= 0) {
+                binding.rvLyrics.scrollToPosition(currentLyricIndex)
+            }
+        } else {
+            binding.rvLyrics.visibility = View.GONE
+            binding.ivVinylDisc.visibility = View.VISIBLE
+        }
+    }
+
+    private fun loadLyricsForSong(songTitle: String) {
+        lyricEntries = LyricsManager.getLyrics(songTitle)
+        currentLyricIndex = -1
+        lyricAdapter.setEntries(lyricEntries)
+    }
+
+    private fun syncLyricProgress(currentMs: Long) {
+        if (lyricEntries.isEmpty()) return
+        var activeIndex = -1
+        for (i in lyricEntries.indices) {
+            if (currentMs >= lyricEntries[i].timeMs) {
+                activeIndex = i
+            } else {
+                break
+            }
+        }
+        if (activeIndex != currentLyricIndex && activeIndex >= 0) {
+            currentLyricIndex = activeIndex
+            lyricAdapter.highlightIndex(currentLyricIndex)
+            if (isLyricsVisible) {
+                binding.rvLyrics.smoothScrollToPosition(currentLyricIndex)
+            }
+        }
     }
 
     private fun startAndBindService() {
@@ -183,7 +251,6 @@ class MainActivity : AppCompatActivity() {
             checkStoragePermissionAndScan()
         }
 
-        // 定时关闭按钮点击弹出选项
         binding.btnSleepTimer.setOnClickListener {
             showSleepTimerDialog()
         }
@@ -195,33 +262,19 @@ class MainActivity : AppCompatActivity() {
             .setTitle("睡眠定时关闭")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> {
-                        musicService?.startSleepTimer(15)
-                        Toast.makeText(this, "将在 15 分钟后停止播放", Toast.LENGTH_SHORT).show()
-                    }
-                    1 -> {
-                        musicService?.startSleepTimer(30)
-                        Toast.makeText(this, "将在 30 分钟后停止播放", Toast.LENGTH_SHORT).show()
-                    }
-                    2 -> {
-                        musicService?.startSleepTimer(45)
-                        Toast.makeText(this, "将在 45 分钟后停止播放", Toast.LENGTH_SHORT).show()
-                    }
-                    3 -> {
-                        musicService?.startSleepTimer(60)
-                        Toast.makeText(this, "将在 60 分钟后停止播放", Toast.LENGTH_SHORT).show()
-                    }
+                    0 -> musicService?.startSleepTimer(15)
+                    1 -> musicService?.startSleepTimer(30)
+                    2 -> musicService?.startSleepTimer(45)
+                    3 -> musicService?.startSleepTimer(60)
                     4 -> {
                         musicService?.setStopAfterCurrent(true)
                         binding.btnSleepTimer.text = "播完停"
                         binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
-                        Toast.makeText(this, "将在当前歌曲播放完毕后停止", Toast.LENGTH_SHORT).show()
                     }
                     5 -> {
                         musicService?.cancelSleepTimer()
                         binding.btnSleepTimer.text = "定时关闭"
                         binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
-                        Toast.makeText(this, "已取消定时关闭", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -301,18 +354,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateModeIcon(mode: Int) {
         when (mode) {
-            0 -> {
-                binding.btnMode.setImageResource(R.drawable.ic_repeat)
-                Toast.makeText(this, "列表循环", Toast.LENGTH_SHORT).show()
-            }
-            1 -> {
-                binding.btnMode.setImageResource(R.drawable.ic_repeat_one)
-                Toast.makeText(this, "单曲循环", Toast.LENGTH_SHORT).show()
-            }
-            2 -> {
-                binding.btnMode.setImageResource(R.drawable.ic_shuffle)
-                Toast.makeText(this, "随机播放", Toast.LENGTH_SHORT).show()
-            }
+            0 -> binding.btnMode.setImageResource(R.drawable.ic_repeat)
+            1 -> binding.btnMode.setImageResource(R.drawable.ic_repeat_one)
+            2 -> binding.btnMode.setImageResource(R.drawable.ic_shuffle)
         }
     }
 
@@ -349,5 +393,50 @@ class MainActivity : AppCompatActivity() {
             isBound = false
         }
         discAnimator.cancel()
+    }
+
+    // 歌词列表内部适配器
+    inner class LyricAdapter : RecyclerView.Adapter<LyricAdapter.LyricViewHolder>() {
+        private var entries: List<LyricEntry> = emptyList()
+        private var highlightedPosition = -1
+
+        fun setEntries(newEntries: List<LyricEntry>) {
+            this.entries = newEntries
+            this.highlightedPosition = -1
+            notifyDataSetChanged()
+        }
+
+        fun highlightIndex(index: Int) {
+            val oldPos = highlightedPosition
+            highlightedPosition = index
+            if (oldPos >= 0) notifyItemChanged(oldPos)
+            if (highlightedPosition >= 0) notifyItemChanged(highlightedPosition)
+        }
+
+        inner class LyricViewHolder(val textView: TextView) : RecyclerView.ViewHolder(textView)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LyricViewHolder {
+            val view = LayoutInflater.from(parent.context).inflate(R.layout.item_lyric, parent, false) as TextView
+            view.setOnClickListener {
+                toggleDiscAndLyrics(showLyrics = false)
+            }
+            return LyricViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: LyricViewHolder, position: Int) {
+            val entry = entries[position]
+            holder.textView.text = entry.text
+            if (position == highlightedPosition) {
+                holder.textView.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_green))
+                holder.textView.textSize = 18f
+                holder.textView.typeface = Typeface.DEFAULT_BOLD
+            } else {
+                holder.textView.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
+                holder.textView.textSize = 14f
+                holder.textView.typeface = Typeface.DEFAULT
+            }
+        }
+
+        override fun getItemCount(): Int = entries.size
     }
 }
