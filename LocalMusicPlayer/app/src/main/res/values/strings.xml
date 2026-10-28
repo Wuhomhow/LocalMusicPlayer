@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">本地音乐播放器</string>
+    <string name="playlist_title">播放列表</string>
+    <string name="playing_now">正在播放</string>
+    <string name="mode_loop">列表循环</string>
+    <string name="mode_single">单曲循环</string>
+    <string name="mode_shuffle">随机播放</string>
+</resources>
