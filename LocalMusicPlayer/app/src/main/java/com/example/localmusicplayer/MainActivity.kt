@@ -16,7 +16,9 @@ import android.provider.MediaStore
 import android.view.animation.LinearInterpolator
 import android.widget.SeekBar
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.localmusicplayer.databinding.ActivityMainBinding
@@ -64,6 +66,10 @@ class MainActivity : AppCompatActivity() {
                 override fun onPlaylistUpdated() {
                     Toast.makeText(this@MainActivity, "歌单已更新，共 ${s.playlist.size} 首歌曲", Toast.LENGTH_SHORT).show()
                 }
+
+                override fun onSleepTimerTick(remainingSeconds: Int) {
+                    updateSleepTimerButton(remainingSeconds)
+                }
             }
 
             s.getCurrentSong()?.let { currentSong ->
@@ -82,6 +88,14 @@ class MainActivity : AppCompatActivity() {
                 if (!discAnimator.isStarted) discAnimator.start()
             }
             updateModeIcon(s.playMode)
+
+            // 同步定时关闭按钮状态
+            if (s.stopAfterCurrentTrack) {
+                binding.btnSleepTimer.text = "播完停"
+                binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_green))
+            } else {
+                updateSleepTimerButton(s.sleepRemainingSeconds)
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -165,9 +179,64 @@ class MainActivity : AppCompatActivity() {
             showPlaylistBottomSheet()
         }
 
-        // 点击“扫描本地”按钮
         binding.btnScanLocal.setOnClickListener {
             checkStoragePermissionAndScan()
+        }
+
+        // 定时关闭按钮点击弹出选项
+        binding.btnSleepTimer.setOnClickListener {
+            showSleepTimerDialog()
+        }
+    }
+
+    private fun showSleepTimerDialog() {
+        val options = arrayOf("15 分钟", "30 分钟", "45 分钟", "60 分钟", "播完当前歌曲后停止", "关闭定时")
+        AlertDialog.Builder(this)
+            .setTitle("睡眠定时关闭")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        musicService?.startSleepTimer(15)
+                        Toast.makeText(this, "将在 15 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> {
+                        musicService?.startSleepTimer(30)
+                        Toast.makeText(this, "将在 30 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> {
+                        musicService?.startSleepTimer(45)
+                        Toast.makeText(this, "将在 45 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                    }
+                    3 -> {
+                        musicService?.startSleepTimer(60)
+                        Toast.makeText(this, "将在 60 分钟后停止播放", Toast.LENGTH_SHORT).show()
+                    }
+                    4 -> {
+                        musicService?.setStopAfterCurrent(true)
+                        binding.btnSleepTimer.text = "播完停"
+                        binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+                        Toast.makeText(this, "将在当前歌曲播放完毕后停止", Toast.LENGTH_SHORT).show()
+                    }
+                    5 -> {
+                        musicService?.cancelSleepTimer()
+                        binding.btnSleepTimer.text = "定时关闭"
+                        binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                        Toast.makeText(this, "已取消定时关闭", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun updateSleepTimerButton(remainingSeconds: Int) {
+        if (remainingSeconds > 0) {
+            val minutes = remainingSeconds / 60
+            val seconds = remainingSeconds % 60
+            binding.btnSleepTimer.text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+            binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+        } else {
+            binding.btnSleepTimer.text = "定时关闭"
+            binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
         }
     }
 
@@ -192,7 +261,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 扫描手机媒体库
     private fun scanDeviceAudioFiles() {
         val localList = mutableListOf<Song>()
         val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
@@ -202,7 +270,6 @@ class MainActivity : AppCompatActivity() {
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.DURATION
         )
-        // 过滤掉小于 30 秒的短音频（避免把手机按键声、提示音扫进来）
         val selection = "${MediaStore.Audio.Media.DURATION} >= 30000"
 
         try {
@@ -226,7 +293,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (localList.isEmpty()) {
-            Toast.makeText(this, "未在手机存储中找到时长大于30秒的歌曲", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "未在手机存储中找到大于30秒的歌曲", Toast.LENGTH_SHORT).show()
         } else {
             musicService?.addLocalSongs(localList)
         }
