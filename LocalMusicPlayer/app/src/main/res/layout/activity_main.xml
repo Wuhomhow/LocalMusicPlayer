@@ -6,7 +6,7 @@
     android:background="@color/bg_dark"
     android:padding="20dp">
 
-    <!-- 顶部左侧：睡眠定时按钮（开启后显示实时倒计时） -->
+    <!-- 顶部左侧：睡眠定时 -->
     <Button
         android:id="@+id/btnSleepTimer"
         style="@style/Widget.Material3.Button.TextButton"
@@ -19,7 +19,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/tvHeader" />
 
-    <!-- 顶部中间：标题 -->
+    <!-- 顶部标题 -->
     <TextView
         android:id="@+id/tvHeader"
         android:layout_width="wrap_content"
@@ -32,7 +32,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- 顶部右侧：扫描本地音乐按钮 -->
+    <!-- 顶部右侧：扫描本地 -->
     <Button
         android:id="@+id/btnScanLocal"
         style="@style/Widget.Material3.Button.TextButton"
@@ -45,19 +45,38 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/tvHeader" />
 
-    <!-- 黑胶唱片图 -->
-    <ImageView
-        android:id="@+id/ivVinylDisc"
-        android:layout_width="260dp"
-        android:layout_height="260dp"
-        android:layout_marginTop="32dp"
-        android:contentDescription="唱片封面"
-        android:src="@drawable/bg_vinyl"
+    <!-- 中间交互区：黑胶唱片与歌词滚动（点击可相互切换） -->
+    <FrameLayout
+        android:id="@+id/containerCenter"
+        android:layout_width="0dp"
+        android:layout_height="280dp"
+        android:layout_marginTop="20dp"
         app:layout_constraintBottom_toTopOf="@+id/tvSongTitle"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/tvHeader"
-        app:layout_constraintVertical_bias="0.4" />
+        app:layout_constraintVertical_bias="0.3">
+
+        <!-- 黑胶唱片 -->
+        <ImageView
+            android:id="@+id/ivVinylDisc"
+            android:layout_width="260dp"
+            android:layout_height="260dp"
+            android:layout_gravity="center"
+            android:contentDescription="唱片封面"
+            android:src="@drawable/bg_vinyl" />
+
+        <!-- 歌词滚动列表（默认隐藏，点击唱片显示） -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvLyrics"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="110dp"
+            android:paddingBottom="110dp"
+            android:visibility="gone" />
+
+    </FrameLayout>
 
     <!-- 歌曲名称 -->
     <TextView
@@ -83,7 +102,7 @@
         android:id="@+id/tvArtist"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="28dp"
+        android:layout_marginBottom="24dp"
         android:text="歌手"
         android:textColor="@color/text_secondary"
         android:textSize="15sp"
@@ -110,7 +129,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginBottom="20dp"
         android:text="00:00"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
@@ -123,7 +142,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="8dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginBottom="20dp"
         android:text="00:00"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
@@ -135,7 +154,7 @@
         android:id="@+id/layoutControls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="32dp"
+        android:layout_marginBottom="28dp"
         android:gravity="center"
         android:orientation="horizontal"
         app:layout_constraintBottom_toBottomOf="parent"
