@@ -8,10 +8,12 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 
 class SongAdapter(
-    private val songs: List<Song>,
-    private var currentSongIndex: Int,
-    private val onItemClick: (Int) -> Unit
+    private val masterSongs: List<Song>,
+    private var currentSongId: Long,
+    private val onItemClick: (Song) -> Unit
 ) : RecyclerView.Adapter<SongAdapter.SongViewHolder>() {
+
+    private var displaySongs: MutableList<Song> = masterSongs.toMutableList()
 
     class SongViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val tvTitle: TextView = itemView.findViewById(R.id.tvItemTitle)
@@ -25,26 +27,37 @@ class SongAdapter(
     }
 
     override fun onBindViewHolder(holder: SongViewHolder, position: Int) {
-        val song = songs[position]
+        val song = displaySongs[position]
         holder.tvTitle.text = song.title
         holder.tvArtist.text = song.artist
-        holder.tvDuration.text = "内置"
+        holder.tvDuration.text = if (song.rawResId != 0) "内置" else "本地"
 
-        if (position == currentSongIndex) {
+        if (song.id == currentSongId) {
             holder.tvTitle.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.accent_green))
         } else {
             holder.tvTitle.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.text_primary))
         }
 
         holder.itemView.setOnClickListener {
-            onItemClick(position)
+            onItemClick(song)
         }
     }
 
-    override fun getItemCount(): Int = songs.size
+    override fun getItemCount(): Int = displaySongs.size
 
-    fun updateCurrentIndex(newIndex: Int) {
-        currentSongIndex = newIndex
+    fun filter(query: String) {
+        displaySongs = if (query.isBlank()) {
+            masterSongs.toMutableList()
+        } else {
+            masterSongs.filter {
+                it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true)
+            }.toMutableList()
+        }
+        notifyDataSetChanged()
+    }
+
+    fun updateCurrentSongId(newId: Long) {
+        currentSongId = newId
         notifyDataSetChanged()
     }
 }
