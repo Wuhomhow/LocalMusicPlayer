@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 权限列表：后台保活 + 手机本地音频扫描权限 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    
-    <!-- 读取手机内部存储音乐权限（兼顾新旧安卓系统） -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
 
@@ -19,10 +16,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LocalMusicPlayer">
 
+        <!-- 移除了 android:screenOrientation="portrait"，开启随重力感应自动旋转 -->
         <activity
             android:name=".MainActivity"
-            android:exported="true"
-            android:screenOrientation="portrait">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
