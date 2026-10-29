@@ -13,7 +13,7 @@
         android:orientation="vertical"
         app:layout_constraintGuide_percent="0.48" />
 
-    <!-- 左半边：黑胶唱片与歌词 -->
+    <!-- 左半边 -->
     <FrameLayout
         android:id="@+id/containerCenter"
         android:layout_width="0dp"
@@ -45,7 +45,7 @@
 
     </FrameLayout>
 
-    <!-- 右半边：顶部状态栏 -->
+    <!-- 右半边 -->
     <TextView
         android:id="@+id/tvSleepBadge"
         android:layout_width="wrap_content"
@@ -86,13 +86,12 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- 右半边：歌曲信息 -->
     <TextView
         android:id="@+id/tvSongTitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
+        android:layout_marginEnd="6dp"
         android:ellipsize="end"
         android:gravity="center"
         android:maxLines="1"
@@ -101,10 +100,23 @@
         android:textSize="20sp"
         android:textStyle="bold"
         app:layout_constraintBottom_toTopOf="@+id/tvArtist"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/btnFavorite"
         app:layout_constraintStart_toStartOf="@+id/guidelineCenter"
         app:layout_constraintTop_toBottomOf="@+id/btnSettings"
         app:layout_constraintVertical_chainStyle="packed" />
+
+    <ImageButton
+        android:id="@+id/btnFavorite"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_marginEnd="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="收藏歌曲"
+        android:padding="6dp"
+        android:src="@drawable/ic_favorite_border"
+        app:layout_constraintBottom_toBottomOf="@+id/tvSongTitle"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/tvSongTitle" />
 
     <TextView
         android:id="@+id/tvArtist"
@@ -122,7 +134,6 @@
         app:layout_constraintStart_toStartOf="@+id/guidelineCenter"
         app:layout_constraintTop_toBottomOf="@+id/tvSongTitle" />
 
-    <!-- 右半边：进度条 -->
     <SeekBar
         android:id="@+id/seekBar"
         android:layout_width="0dp"
@@ -162,7 +173,6 @@
         app:layout_constraintEnd_toEndOf="@+id/seekBar"
         app:layout_constraintTop_toBottomOf="@+id/seekBar" />
 
-    <!-- 右半边：控制栏 -->
     <LinearLayout
         android:id="@+id/layoutControls"
         android:layout_width="0dp"
