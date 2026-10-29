@@ -6,7 +6,7 @@
     android:background="@color/bg_dark"
     android:padding="20dp">
 
-    <!-- 顶部状态胶囊（仅在定时生效时显示微型倒计时，不占主视觉） -->
+    <!-- 顶部状态胶囊 -->
     <TextView
         android:id="@+id/tvSleepBadge"
         android:layout_width="wrap_content"
@@ -37,7 +37,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- 顶部右侧：设置按钮 -->
+    <!-- 顶部设置按钮 -->
     <ImageButton
         android:id="@+id/btnSettings"
         android:layout_width="40dp"
@@ -50,7 +50,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/tvHeader" />
 
-    <!-- 中间交互区：黑胶唱片与歌词 -->
+    <!-- 中间交互区：唱片与歌词 -->
     <FrameLayout
         android:id="@+id/containerCenter"
         android:layout_width="0dp"
@@ -86,8 +86,8 @@
         android:id="@+id/tvSongTitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
+        android:layout_marginStart="44dp"
+        android:layout_marginEnd="6dp"
         android:layout_marginBottom="6dp"
         android:ellipsize="end"
         android:gravity="center"
@@ -97,8 +97,22 @@
         android:textSize="22sp"
         android:textStyle="bold"
         app:layout_constraintBottom_toTopOf="@+id/tvArtist"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/btnFavorite"
         app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- ❤️ 收藏红心按钮 -->
+    <ImageButton
+        android:id="@+id/btnFavorite"
+        android:layout_width="38dp"
+        android:layout_height="38dp"
+        android:layout_marginEnd="12dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="收藏歌曲"
+        android:padding="6dp"
+        android:src="@drawable/ic_favorite_border"
+        app:layout_constraintBottom_toBottomOf="@+id/tvSongTitle"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@+id/tvSongTitle" />
 
     <!-- 歌手名称 -->
     <TextView
@@ -126,7 +140,6 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
-    <!-- 播放时间 -->
     <TextView
         android:id="@+id/tvCurrentTime"
         android:layout_width="wrap_content"
@@ -151,7 +164,7 @@
         app:layout_constraintBottom_toTopOf="@+id/layoutControls"
         app:layout_constraintEnd_toEndOf="@+id/seekBar" />
 
-    <!-- 经典极简 5 键控制栏（左右宽阔舒适） -->
+    <!-- 5 键控制栏 -->
     <LinearLayout
         android:id="@+id/layoutControls"
         android:layout_width="match_parent"
