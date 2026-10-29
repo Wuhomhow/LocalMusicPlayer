@@ -16,6 +16,7 @@ import android.os.IBinder
 import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -138,6 +139,53 @@ class MainActivity : AppCompatActivity() {
         startAndBindService()
     }
 
+    // --- 实体物理按键支持（游戏手柄、遥控器、外接键盘） ---
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            // 播放/暂停按键：手柄 A 键、Start 键、遥控器 OK 键、通用播放键
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_BUTTON_START -> {
+                musicService?.togglePlayPause()
+                return true
+            }
+
+            // 下一首：手柄 R1 键、右方向键、媒体下曲键
+            KeyEvent.KEYCODE_MEDIA_NEXT,
+            KeyEvent.KEYCODE_BUTTON_R1,
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                musicService?.playNext()
+                return true
+            }
+
+            // 上一首：手柄 L1 键、左方向键、媒体上曲键
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+            KeyEvent.KEYCODE_BUTTON_L1,
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                musicService?.playPrevious()
+                return true
+            }
+
+            // 模式切换：手柄 Y 键
+            KeyEvent.KEYCODE_BUTTON_Y -> {
+                musicService?.let { s ->
+                    s.playMode = (s.playMode + 1) % 3
+                    updateModeIcon(s.playMode)
+                }
+                return true
+            }
+
+            // 唱片/歌词切换：手柄 X 键
+            KeyEvent.KEYCODE_BUTTON_X -> {
+                toggleDiscAndLyrics(!isLyricsVisible)
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean("is_lyrics_visible", isLyricsVisible)
@@ -256,18 +304,15 @@ class MainActivity : AppCompatActivity() {
             showPlaylistBottomSheet()
         }
 
-        // 点击右上角设置按钮打开抽屉菜单
         binding.btnSettings.setOnClickListener {
             showSettingsBottomSheet()
         }
 
-        // 点击顶部倒计时小胶囊也可以直接调整定时
         binding.tvSleepBadge.setOnClickListener {
             showSleepTimerDialog()
         }
     }
 
-    // --- 设置底栏抽屉 ---
     private fun showSettingsBottomSheet() {
         val s = musicService ?: return
         val dialog = BottomSheetDialog(this)
@@ -290,7 +335,6 @@ class MainActivity : AppCompatActivity() {
             tvSleepSubtitle.text = "未开启定时"
         }
 
-        // 菜单项点击事件
         dialogView.findViewById<View>(R.id.menuScanLocal).setOnClickListener {
             dialog.dismiss()
             checkStoragePermissionAndScan()
@@ -348,7 +392,6 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // 仅在定时有效时展示顶部微型倒计时胶囊，平常隐藏
     private fun updateSleepBadge(remainingSeconds: Int) {
         val s = musicService
         if (s != null && s.stopAfterCurrentTrack) {
