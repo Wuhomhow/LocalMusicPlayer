@@ -10,10 +10,13 @@ import androidx.recyclerview.widget.RecyclerView
 class SongAdapter(
     private val masterSongs: List<Song>,
     private var currentSongId: Long,
+    private val favoriteIds: Set<Long>,
     private val onItemClick: (Song) -> Unit
 ) : RecyclerView.Adapter<SongAdapter.SongViewHolder>() {
 
     private var displaySongs: MutableList<Song> = masterSongs.toMutableList()
+    private var currentQuery: String = ""
+    private var showFavoritesOnly: Boolean = false
 
     class SongViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         val tvTitle: TextView = itemView.findViewById(R.id.tvItemTitle)
@@ -28,7 +31,9 @@ class SongAdapter(
 
     override fun onBindViewHolder(holder: SongViewHolder, position: Int) {
         val song = displaySongs[position]
-        holder.tvTitle.text = song.title
+        val isFav = favoriteIds.contains(song.id)
+
+        holder.tvTitle.text = if (isFav) "❤️ ${song.title}" else song.title
         holder.tvArtist.text = song.artist
         holder.tvDuration.text = if (song.rawResId != 0) "内置" else "本地"
 
@@ -46,13 +51,26 @@ class SongAdapter(
     override fun getItemCount(): Int = displaySongs.size
 
     fun filter(query: String) {
-        displaySongs = if (query.isBlank()) {
-            masterSongs.toMutableList()
-        } else {
-            masterSongs.filter {
-                it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true)
-            }.toMutableList()
+        currentQuery = query
+        applyFilter()
+    }
+
+    fun setFilterFavorites(onlyFav: Boolean) {
+        showFavoritesOnly = onlyFav
+        applyFilter()
+    }
+
+    private fun applyFilter() {
+        var list = masterSongs
+        if (showFavoritesOnly) {
+            list = list.filter { favoriteIds.contains(it.id) }
         }
+        if (currentQuery.isNotBlank()) {
+            list = list.filter {
+                it.title.contains(currentQuery, ignoreCase = true) || it.artist.contains(currentQuery, ignoreCase = true)
+            }
+        }
+        displaySongs = list.toMutableList()
         notifyDataSetChanged()
     }
 
