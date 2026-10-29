@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
@@ -14,6 +15,8 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlin.random.Random
 
 class MusicService : Service() {
@@ -44,6 +47,7 @@ class MusicService : Service() {
         fun onSpeedChanged(speed: Float)
     }
 
+    // 10 首基础内置歌曲
     val playlist = mutableListOf(
         Song(1, "爱很美", "SARA & 刘佳", rawResId = R.raw.track_ai_hen_mei),
         Song(2, "大火", "李佳薇", rawResId = R.raw.track_da_huo),
@@ -96,6 +100,13 @@ class MusicService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+
+        // 启动时自动从手机本地存储中恢复上一次扫描到的歌曲列表
+        loadSavedLocalSongs()
+
+        // 恢复上一次播放的歌曲位置
+        loadLastPlaybackPosition()
+
         resetShuffleList()
     }
 
@@ -110,7 +121,6 @@ class MusicService : Service() {
         return START_NOT_STICKY
     }
 
-    // 重置洗牌列表（确保当前歌曲在最前面，其他乱序）
     fun resetShuffleList() {
         if (playlist.isEmpty()) {
             shuffleList.clear()
@@ -119,7 +129,6 @@ class MusicService : Service() {
         }
         val pool = playlist.indices.toMutableList()
         pool.shuffle()
-        // 将当前歌曲移到首位避免立即重复
         pool.remove(currentTrackIndex)
         shuffleList.clear()
         shuffleList.add(currentTrackIndex)
@@ -189,6 +198,9 @@ class MusicService : Service() {
             return
         }
 
+        // 保存最后一次播放的曲目索引
+        saveLastPlaybackPosition(currentTrackIndex)
+
         val totalMs = mediaPlayer?.duration ?: 0
         onStateChangedListener?.onTrackChanged(song, currentTrackIndex)
         onStateChangedListener?.onProgressUpdate(0, totalMs)
@@ -230,14 +242,12 @@ class MusicService : Service() {
 
         val nextIndex = when (playMode) {
             2 -> {
-                // 随机模式：按洗牌队列向下取歌，播完一轮再重洗
                 if (shuffleList.size != playlist.size) {
                     resetShuffleList()
                 }
                 shufflePointer++
                 if (shufflePointer >= shuffleList.size) {
                     resetShuffleList()
-                    // 确保换轮时不和上一首相同
                     if (shuffleList.size > 1 && shuffleList[0] == currentTrackIndex) {
                         shufflePointer = 1
                     } else {
@@ -256,7 +266,6 @@ class MusicService : Service() {
 
         val prevIndex = when (playMode) {
             2 -> {
-                // 随机模式：回退到刚才实际听过的那一首歌
                 if (shuffleList.size != playlist.size) {
                     resetShuffleList()
                 }
@@ -264,7 +273,6 @@ class MusicService : Service() {
                     shufflePointer--
                     shuffleList[shufflePointer]
                 } else {
-                    // 若已在首位，向前循环到洗牌列表末尾
                     shufflePointer = shuffleList.size - 1
                     shuffleList[shufflePointer]
                 }
@@ -286,8 +294,66 @@ class MusicService : Service() {
         if (toAdd.isNotEmpty()) {
             playlist.addAll(toAdd)
             resetShuffleList()
+            // 写入本地持久化存储，下次启动不丢失
+            saveLocalSongsToStorage()
             onStateChangedListener?.onPlaylistUpdated()
         }
+    }
+
+    // --- 持久化存储相关逻辑 ---
+    private fun saveLocalSongsToStorage() {
+        try {
+            val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            val jsonArray = JSONArray()
+            playlist.filter { it.uriString != null }.forEach { song ->
+                val obj = JSONObject().apply {
+                    put("id", song.id)
+                    put("title", song.title)
+                    put("artist", song.artist)
+                    put("uri", song.uriString)
+                }
+                jsonArray.put(obj)
+            }
+            prefs.edit().putString("saved_local_songs", jsonArray.toString()).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadSavedLocalSongs() {
+        try {
+            val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("saved_local_songs", null) ?: return
+            val jsonArray = JSONArray(jsonStr)
+            val loaded = mutableListOf<Song>()
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                loaded.add(
+                    Song(
+                        id = obj.getLong("id"),
+                        title = obj.getString("title"),
+                        artist = obj.getString("artist"),
+                        uriString = obj.getString("uri")
+                    )
+                )
+            }
+            val existingUris = playlist.mapNotNull { it.uriString }.toSet()
+            val toAdd = loaded.filter { it.uriString !in existingUris }
+            playlist.addAll(toAdd)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveLastPlaybackPosition(index: Int) {
+        val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putInt("last_track_index", index).apply()
+    }
+
+    private fun loadLastPlaybackPosition() {
+        val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+        val lastIdx = prefs.getInt("last_track_index", 0)
+        currentTrackIndex = if (lastIdx in playlist.indices) lastIdx else 0
     }
 
     private fun onTrackCompletion() {
@@ -300,12 +366,10 @@ class MusicService : Service() {
 
         when (playMode) {
             1 -> {
-                // 单曲循环
                 mediaPlayer?.seekTo(0)
                 play()
             }
             else -> {
-                // 列表循环与随机播放均统一复用 playNext()
                 playNext()
             }
         }
