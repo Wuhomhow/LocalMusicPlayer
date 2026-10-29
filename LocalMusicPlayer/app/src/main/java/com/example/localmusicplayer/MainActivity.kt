@@ -46,7 +46,6 @@ class MainActivity : AppCompatActivity() {
     private var currentLyricIndex = -1
     private var isLyricsVisible = false
 
-    // 支持切换的倍速列表
     private val speedList = listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
 
     private val serviceConnection = object : ServiceConnection {
@@ -132,6 +131,11 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // 恢复旋转前的歌词/唱片显示状态
+        if (savedInstanceState != null) {
+            isLyricsVisible = savedInstanceState.getBoolean("is_lyrics_visible", false)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
@@ -144,10 +148,17 @@ class MainActivity : AppCompatActivity() {
         startAndBindService()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean("is_lyrics_visible", isLyricsVisible)
+    }
+
     private fun setupLyricsView() {
         lyricAdapter = LyricAdapter()
         binding.rvLyrics.layoutManager = LinearLayoutManager(this)
         binding.rvLyrics.adapter = lyricAdapter
+
+        toggleDiscAndLyrics(isLyricsVisible)
 
         binding.ivVinylDisc.setOnClickListener {
             toggleDiscAndLyrics(showLyrics = true)
@@ -235,7 +246,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 点击倍速按钮循环切换
         binding.btnSpeed.setOnClickListener {
             musicService?.let { s ->
                 val nextIdx = (speedList.indexOf(s.currentSpeed) + 1) % speedList.size
@@ -397,7 +407,6 @@ class MainActivity : AppCompatActivity() {
         rvPlaylist.layoutManager = LinearLayoutManager(this)
         rvPlaylist.adapter = adapter
 
-        // 监听搜索框输入，实时过滤歌曲
         etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
