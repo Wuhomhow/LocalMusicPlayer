@@ -31,7 +31,9 @@ class MusicService : Service() {
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
     var currentSpeed = 1.0f
 
-    // 硬件物理按键接管：MediaSession（车机方向盘、蓝牙耳机、线控）
+    // 收藏歌曲 ID 集合
+    val favoriteIds = mutableSetOf<Long>()
+
     private var mediaSession: MediaSession? = null
 
     var sleepRemainingSeconds: Int = 0
@@ -49,6 +51,7 @@ class MusicService : Service() {
         fun onPlaylistUpdated()
         fun onSleepTimerTick(remainingSeconds: Int)
         fun onSpeedChanged(speed: Float)
+        fun onFavoriteStateChanged(isFavorite: Boolean)
     }
 
     val playlist = mutableListOf(
@@ -112,11 +115,11 @@ class MusicService : Service() {
         createNotificationChannel()
         setupMediaSession()
         loadSavedLocalSongs()
+        loadFavoritesFromStorage()
         loadLastPlaybackPosition()
         resetShuffleList()
     }
 
-    // 初始化硬件按键会话（支持车机方向盘、蓝牙耳机按键）
     private fun setupMediaSession() {
         mediaSession = MediaSession(this, "LocalMusicPlayerSession").apply {
             setCallback(object : MediaSession.Callback() {
@@ -174,6 +177,21 @@ class MusicService : Service() {
         }
         return START_NOT_STICKY
     }
+
+    fun toggleFavorite(songId: Long): Boolean {
+        val newState = if (favoriteIds.contains(songId)) {
+            favoriteIds.remove(songId)
+            false
+        } else {
+            favoriteIds.add(songId)
+            true
+        }
+        saveFavoritesToStorage()
+        onStateChangedListener?.onFavoriteStateChanged(newState)
+        return newState
+    }
+
+    fun isFavorite(songId: Long): Boolean = favoriteIds.contains(songId)
 
     fun resetShuffleList() {
         if (playlist.isEmpty()) {
@@ -259,6 +277,7 @@ class MusicService : Service() {
         val totalMs = mediaPlayer?.duration ?: 0
         onStateChangedListener?.onTrackChanged(song, currentTrackIndex)
         onStateChangedListener?.onProgressUpdate(0, totalMs)
+        onStateChangedListener?.onFavoriteStateChanged(isFavorite(song.id))
 
         if (autoPlay) {
             play()
@@ -396,6 +415,31 @@ class MusicService : Service() {
             val existingUris = playlist.mapNotNull { it.uriString }.toSet()
             val toAdd = loaded.filter { it.uriString !in existingUris }
             playlist.addAll(toAdd)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveFavoritesToStorage() {
+        try {
+            val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            val jsonArray = JSONArray()
+            favoriteIds.forEach { jsonArray.put(it) }
+            prefs.edit().putString("saved_favorite_ids", jsonArray.toString()).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadFavoritesFromStorage() {
+        try {
+            val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            val jsonStr = prefs.getString("saved_favorite_ids", null) ?: return
+            val jsonArray = JSONArray(jsonStr)
+            favoriteIds.clear()
+            for (i in 0 until jsonArray.length()) {
+                favoriteIds.add(jsonArray.getLong(i))
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
