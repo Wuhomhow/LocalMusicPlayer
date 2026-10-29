@@ -6,15 +6,20 @@
     android:background="@color/bg_dark"
     android:padding="20dp">
 
-    <!-- 顶部左侧：睡眠定时 -->
-    <Button
-        android:id="@+id/btnSleepTimer"
-        style="@style/Widget.Material3.Button.TextButton"
+    <!-- 顶部状态胶囊（仅在定时生效时显示微型倒计时，不占主视觉） -->
+    <TextView
+        android:id="@+id/tvSleepBadge"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="定时关闭"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp"
+        android:background="@drawable/bg_circle_btn"
+        android:paddingStart="10dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="4dp"
+        android:text="⏱️ 15:00"
+        android:textColor="@color/accent_green"
+        android:textSize="11sp"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="@+id/tvHeader"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@+id/tvHeader" />
@@ -24,7 +29,7 @@
         android:id="@+id/tvHeader"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="本地音乐播放器"
+        android:text="正在播放"
         android:textColor="@color/text_secondary"
         android:textSize="14sp"
         android:letterSpacing="0.1"
@@ -32,20 +37,20 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- 顶部右侧：扫描本地 -->
-    <Button
-        android:id="@+id/btnScanLocal"
-        style="@style/Widget.Material3.Button.TextButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="扫描本地"
-        android:textColor="@color/accent_green"
-        android:textSize="12sp"
+    <!-- 顶部右侧：设置按钮 -->
+    <ImageButton
+        android:id="@+id/btnSettings"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="设置与功能"
+        android:padding="8dp"
+        android:src="@drawable/ic_settings"
         app:layout_constraintBottom_toBottomOf="@+id/tvHeader"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/tvHeader" />
 
-    <!-- 中间交互区：黑胶唱片与歌词滚动 -->
+    <!-- 中间交互区：黑胶唱片与歌词 -->
     <FrameLayout
         android:id="@+id/containerCenter"
         android:layout_width="0dp"
@@ -121,33 +126,32 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
-    <!-- 当前播放时间 -->
+    <!-- 播放时间 -->
     <TextView
         android:id="@+id/tvCurrentTime"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:layout_marginBottom="20dp"
+        android:layout_marginBottom="24dp"
         android:text="00:00"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
         app:layout_constraintBottom_toTopOf="@+id/layoutControls"
         app:layout_constraintStart_toStartOf="@+id/seekBar" />
 
-    <!-- 总时长 -->
     <TextView
         android:id="@+id/tvTotalTime"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="8dp"
-        android:layout_marginBottom="20dp"
+        android:layout_marginBottom="24dp"
         android:text="00:00"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
         app:layout_constraintBottom_toTopOf="@+id/layoutControls"
         app:layout_constraintEnd_toEndOf="@+id/seekBar" />
 
-    <!-- 底部控制栏 -->
+    <!-- 经典极简 5 键控制栏（左右宽阔舒适） -->
     <LinearLayout
         android:id="@+id/layoutControls"
         android:layout_width="match_parent"
@@ -159,14 +163,13 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <!-- 播放模式 -->
         <ImageButton
             android:id="@+id/btnMode"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="播放模式"
-            android:padding="6dp"
+            android:padding="8dp"
             android:src="@drawable/ic_repeat" />
 
         <Space
@@ -174,7 +177,6 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <!-- 上一首 -->
         <ImageButton
             android:id="@+id/btnPrevious"
             android:layout_width="48dp"
@@ -185,10 +187,9 @@
             android:src="@drawable/ic_skip_previous" />
 
         <Space
-            android:layout_width="16dp"
+            android:layout_width="20dp"
             android:layout_height="1dp" />
 
-        <!-- 播放/暂停 -->
         <ImageButton
             android:id="@+id/btnPlayPause"
             android:layout_width="64dp"
@@ -199,10 +200,9 @@
             android:src="@drawable/ic_play" />
 
         <Space
-            android:layout_width="16dp"
+            android:layout_width="20dp"
             android:layout_height="1dp" />
 
-        <!-- 下一首 -->
         <ImageButton
             android:id="@+id/btnNext"
             android:layout_width="48dp"
@@ -217,31 +217,13 @@
             android:layout_height="1dp"
             android:layout_weight="1" />
 
-        <!-- 倍速切换按钮 (1.0x) -->
-        <Button
-            android:id="@+id/btnSpeed"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="38dp"
-            android:minWidth="44dp"
-            android:padding="0dp"
-            android:text="1.0x"
-            android:textColor="@color/accent_green"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <Space
-            android:layout_width="8dp"
-            android:layout_height="1dp" />
-
-        <!-- 播放列表 -->
         <ImageButton
             android:id="@+id/btnPlaylist"
-            android:layout_width="38dp"
-            android:layout_height="38dp"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="播放列表"
-            android:padding="6dp"
+            android:padding="8dp"
             android:src="@drawable/ic_playlist" />
 
     </LinearLayout>
