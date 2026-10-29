@@ -8,12 +8,15 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.view.KeyEvent
 import androidx.core.app.NotificationCompat
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,11 +31,12 @@ class MusicService : Service() {
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
     var currentSpeed = 1.0f
 
-    // 睡眠定时器相关状态
+    // 硬件物理按键接管：MediaSession（车机方向盘、蓝牙耳机、线控）
+    private var mediaSession: MediaSession? = null
+
     var sleepRemainingSeconds: Int = 0
     var stopAfterCurrentTrack: Boolean = false
 
-    // 洗牌随机播放队列
     private val shuffleList = mutableListOf<Int>()
     private var shufflePointer = -1
 
@@ -75,7 +79,6 @@ class MusicService : Service() {
         }
     }
 
-    // 倒计时器轮询逻辑：归零时等待当前歌曲播完才结束
     private val sleepTimerRunnable = object : Runnable {
         override fun run() {
             if (sleepRemainingSeconds > 0) {
@@ -83,11 +86,9 @@ class MusicService : Service() {
                 onStateChangedListener?.onSleepTimerTick(sleepRemainingSeconds)
                 if (sleepRemainingSeconds <= 0) {
                     if (isPlaying) {
-                        // 倒计时归零：标记“播完当前歌曲后停止”
                         stopAfterCurrentTrack = true
                         onStateChangedListener?.onSleepTimerTick(0)
                     } else {
-                        // 若本来就在暂停状态，则直接结束
                         stopAfterCurrentTrack = false
                         pause()
                         stopForeground(STOP_FOREGROUND_DETACH)
@@ -109,9 +110,58 @@ class MusicService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        setupMediaSession()
         loadSavedLocalSongs()
         loadLastPlaybackPosition()
         resetShuffleList()
+    }
+
+    // 初始化硬件按键会话（支持车机方向盘、蓝牙耳机按键）
+    private fun setupMediaSession() {
+        mediaSession = MediaSession(this, "LocalMusicPlayerSession").apply {
+            setCallback(object : MediaSession.Callback() {
+                override fun onPlay() { play() }
+                override fun onPause() { pause() }
+                override fun onSkipToNext() { playNext() }
+                override fun onSkipToPrevious() { playPrevious() }
+                override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
+                    val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        mediaButtonIntent.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
+                    }
+                    if (keyEvent != null && keyEvent.action == KeyEvent.ACTION_DOWN) {
+                        when (keyEvent.keyCode) {
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                            KeyEvent.KEYCODE_HEADSETHOOK -> togglePlayPause()
+                            KeyEvent.KEYCODE_MEDIA_PLAY -> play()
+                            KeyEvent.KEYCODE_MEDIA_PAUSE -> pause()
+                            KeyEvent.KEYCODE_MEDIA_NEXT -> playNext()
+                            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> playPrevious()
+                        }
+                    }
+                    return true
+                }
+            })
+            isActive = true
+        }
+        updatePlaybackState()
+    }
+
+    private fun updatePlaybackState() {
+        val state = if (isPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+        val playbackState = PlaybackState.Builder()
+            .setActions(
+                PlaybackState.ACTION_PLAY or
+                PlaybackState.ACTION_PAUSE or
+                PlaybackState.ACTION_PLAY_PAUSE or
+                PlaybackState.ACTION_SKIP_TO_NEXT or
+                PlaybackState.ACTION_SKIP_TO_PREVIOUS
+            )
+            .setState(state, mediaPlayer?.currentPosition?.toLong() ?: 0L, currentSpeed)
+            .build()
+        mediaSession?.setPlaybackState(playbackState)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -149,6 +199,7 @@ class MusicService : Service() {
                 if (!playing) player.pause()
             }
         }
+        updatePlaybackState()
         onStateChangedListener?.onSpeedChanged(currentSpeed)
     }
 
@@ -203,6 +254,7 @@ class MusicService : Service() {
         }
 
         saveLastPlaybackPosition(currentTrackIndex)
+        updatePlaybackState()
 
         val totalMs = mediaPlayer?.duration ?: 0
         onStateChangedListener?.onTrackChanged(song, currentTrackIndex)
@@ -223,6 +275,7 @@ class MusicService : Service() {
         }
         mediaPlayer?.start()
         isPlaying = true
+        updatePlaybackState()
         onStateChangedListener?.onPlayStateChanged(true)
         handler.post(progressRunnable)
         startForeground(NOTIFICATION_ID, buildNotification())
@@ -231,6 +284,7 @@ class MusicService : Service() {
     fun pause() {
         mediaPlayer?.pause()
         isPlaying = false
+        updatePlaybackState()
         onStateChangedListener?.onPlayStateChanged(false)
         handler.removeCallbacks(progressRunnable)
         updateNotification()
@@ -287,6 +341,7 @@ class MusicService : Service() {
 
     fun seekTo(positionMs: Int) {
         mediaPlayer?.seekTo(positionMs)
+        updatePlaybackState()
     }
 
     fun getCurrentSong(): Song? = if (playlist.isNotEmpty()) playlist[currentTrackIndex] else null
@@ -358,7 +413,6 @@ class MusicService : Service() {
     }
 
     private fun onTrackCompletion() {
-        // 当前曲目播放完毕时的检查：如果满足“播完即停”，则优雅暂停并关闭通知
         if (stopAfterCurrentTrack) {
             stopAfterCurrentTrack = false
             pause()
@@ -441,6 +495,9 @@ class MusicService : Service() {
         super.onDestroy()
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(sleepTimerRunnable)
+        mediaSession?.isActive = false
+        mediaSession?.release()
+        mediaSession = null
         mediaPlayer?.release()
         mediaPlayer = null
     }
