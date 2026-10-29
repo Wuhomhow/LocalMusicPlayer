@@ -112,12 +112,7 @@ class MainActivity : AppCompatActivity() {
             updateModeIcon(s.playMode)
             binding.btnSpeed.text = "${s.currentSpeed}x"
 
-            if (s.stopAfterCurrentTrack) {
-                binding.btnSleepTimer.text = "播完停"
-                binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_green))
-            } else {
-                updateSleepTimerButton(s.sleepRemainingSeconds)
-            }
+            updateSleepTimerButton(s.sleepRemainingSeconds)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -131,7 +126,6 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 恢复旋转前的歌词/唱片显示状态
         if (savedInstanceState != null) {
             isLyricsVisible = savedInstanceState.getBoolean("is_lyrics_visible", false)
         }
@@ -309,7 +303,14 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // 优化后的按钮状态呈现
     private fun updateSleepTimerButton(remainingSeconds: Int) {
+        val s = musicService
+        if (s != null && s.stopAfterCurrentTrack) {
+            binding.btnSleepTimer.text = "播完停"
+            binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            return
+        }
         if (remainingSeconds > 0) {
             val minutes = remainingSeconds / 60
             val seconds = remainingSeconds % 60
