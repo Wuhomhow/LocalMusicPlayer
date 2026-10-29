@@ -47,7 +47,6 @@ class MusicService : Service() {
         fun onSpeedChanged(speed: Float)
     }
 
-    // 10 首基础内置歌曲
     val playlist = mutableListOf(
         Song(1, "爱很美", "SARA & 刘佳", rawResId = R.raw.track_ai_hen_mei),
         Song(2, "大火", "李佳薇", rawResId = R.raw.track_da_huo),
@@ -76,14 +75,24 @@ class MusicService : Service() {
         }
     }
 
+    // 倒计时器轮询逻辑：归零时等待当前歌曲播完才结束
     private val sleepTimerRunnable = object : Runnable {
         override fun run() {
             if (sleepRemainingSeconds > 0) {
                 sleepRemainingSeconds--
                 onStateChangedListener?.onSleepTimerTick(sleepRemainingSeconds)
                 if (sleepRemainingSeconds <= 0) {
-                    pause()
-                    stopForeground(STOP_FOREGROUND_DETACH)
+                    if (isPlaying) {
+                        // 倒计时归零：标记“播完当前歌曲后停止”
+                        stopAfterCurrentTrack = true
+                        onStateChangedListener?.onSleepTimerTick(0)
+                    } else {
+                        // 若本来就在暂停状态，则直接结束
+                        stopAfterCurrentTrack = false
+                        pause()
+                        stopForeground(STOP_FOREGROUND_DETACH)
+                        onStateChangedListener?.onSleepTimerTick(0)
+                    }
                 } else {
                     handler.postDelayed(this, 1000)
                 }
@@ -100,13 +109,8 @@ class MusicService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-
-        // 启动时自动从手机本地存储中恢复上一次扫描到的歌曲列表
         loadSavedLocalSongs()
-
-        // 恢复上一次播放的歌曲位置
         loadLastPlaybackPosition()
-
         resetShuffleList()
     }
 
@@ -198,7 +202,6 @@ class MusicService : Service() {
             return
         }
 
-        // 保存最后一次播放的曲目索引
         saveLastPlaybackPosition(currentTrackIndex)
 
         val totalMs = mediaPlayer?.duration ?: 0
@@ -294,13 +297,11 @@ class MusicService : Service() {
         if (toAdd.isNotEmpty()) {
             playlist.addAll(toAdd)
             resetShuffleList()
-            // 写入本地持久化存储，下次启动不丢失
             saveLocalSongsToStorage()
             onStateChangedListener?.onPlaylistUpdated()
         }
     }
 
-    // --- 持久化存储相关逻辑 ---
     private fun saveLocalSongsToStorage() {
         try {
             val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
@@ -357,9 +358,11 @@ class MusicService : Service() {
     }
 
     private fun onTrackCompletion() {
+        // 当前曲目播放完毕时的检查：如果满足“播完即停”，则优雅暂停并关闭通知
         if (stopAfterCurrentTrack) {
             stopAfterCurrentTrack = false
             pause()
+            stopForeground(STOP_FOREGROUND_DETACH)
             onStateChangedListener?.onSleepTimerTick(0)
             return
         }
