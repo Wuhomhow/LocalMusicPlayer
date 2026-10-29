@@ -2,6 +2,7 @@ package com.example.localmusicplayer
 
 import android.Manifest
 import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.animation.ValueAnimator
 import android.content.ComponentName
 import android.content.ContentUris
@@ -21,6 +22,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.LinearInterpolator
+import android.view.animation.OvershootInterpolator
+import android.widget.Button
 import android.widget.EditText
 import android.widget.SeekBar
 import android.widget.TextView
@@ -61,6 +64,7 @@ class MainActivity : AppCompatActivity() {
                     binding.tvSongTitle.text = song.title
                     binding.tvArtist.text = song.artist
                     loadLyricsForSong(song.title)
+                    updateFavoriteButton(s.isFavorite(song.id))
                 }
 
                 override fun onPlayStateChanged(isPlaying: Boolean) {
@@ -90,12 +94,17 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onSpeedChanged(speed: Float) {}
+
+                override fun onFavoriteStateChanged(isFavorite: Boolean) {
+                    updateFavoriteButton(isFavorite)
+                }
             }
 
             s.getCurrentSong()?.let { currentSong ->
                 binding.tvSongTitle.text = currentSong.title
                 binding.tvArtist.text = currentSong.artist
                 loadLyricsForSong(currentSong.title)
+                updateFavoriteButton(s.isFavorite(currentSong.id))
             }
             val curPos = s.mediaPlayer?.currentPosition ?: 0
             val dur = s.mediaPlayer?.duration ?: 0
@@ -139,10 +148,8 @@ class MainActivity : AppCompatActivity() {
         startAndBindService()
     }
 
-    // --- 实体物理按键支持（游戏手柄、遥控器、外接键盘） ---
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
-            // 播放/暂停按键：手柄 A 键、Start 键、遥控器 OK 键、通用播放键
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_HEADSETHOOK,
             KeyEvent.KEYCODE_BUTTON_A,
@@ -151,24 +158,18 @@ class MainActivity : AppCompatActivity() {
                 musicService?.togglePlayPause()
                 return true
             }
-
-            // 下一首：手柄 R1 键、右方向键、媒体下曲键
             KeyEvent.KEYCODE_MEDIA_NEXT,
             KeyEvent.KEYCODE_BUTTON_R1,
             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 musicService?.playNext()
                 return true
             }
-
-            // 上一首：手柄 L1 键、左方向键、媒体上曲键
             KeyEvent.KEYCODE_MEDIA_PREVIOUS,
             KeyEvent.KEYCODE_BUTTON_L1,
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 musicService?.playPrevious()
                 return true
             }
-
-            // 模式切换：手柄 Y 键
             KeyEvent.KEYCODE_BUTTON_Y -> {
                 musicService?.let { s ->
                     s.playMode = (s.playMode + 1) % 3
@@ -176,8 +177,6 @@ class MainActivity : AppCompatActivity() {
                 }
                 return true
             }
-
-            // 唱片/歌词切换：手柄 X 键
             KeyEvent.KEYCODE_BUTTON_X -> {
                 toggleDiscAndLyrics(!isLyricsVisible)
                 return true
@@ -284,6 +283,28 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // ❤️ 收藏按钮点击事件（带弹性缩放动效）
+        binding.btnFavorite.setOnClickListener {
+            val s = musicService ?: return@setOnClickListener
+            val song = s.getCurrentSong() ?: return@setOnClickListener
+            val isNowFav = s.toggleFavorite(song.id)
+
+            // 弹性动画
+            val pvhX = PropertyValuesHolder.ofFloat(View.SCALE_X, 0.8f, 1.3f, 1.0f)
+            val pvhY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.8f, 1.3f, 1.0f)
+            ObjectAnimator.ofPropertyValuesHolder(binding.btnFavorite, pvhX, pvhY).apply {
+                duration = 350
+                interpolator = OvershootInterpolator()
+                start()
+            }
+
+            if (isNowFav) {
+                Toast.makeText(this, "已加入我喜欢 ❤️", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "已取消收藏", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
@@ -310,6 +331,14 @@ class MainActivity : AppCompatActivity() {
 
         binding.tvSleepBadge.setOnClickListener {
             showSleepTimerDialog()
+        }
+    }
+
+    private fun updateFavoriteButton(isFav: Boolean) {
+        if (isFav) {
+            binding.btnFavorite.setImageResource(R.drawable.ic_favorite)
+        } else {
+            binding.btnFavorite.setImageResource(R.drawable.ic_favorite_border)
         }
     }
 
@@ -476,15 +505,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 播放列表底栏（支持【全部歌曲】与【❤️ 我喜欢】分类切换与搜索）
     private fun showPlaylistBottomSheet() {
         val s = musicService ?: return
         val dialog = BottomSheetDialog(this)
         val dialogView = layoutInflater.inflate(R.layout.dialog_playlist, null)
         val rvPlaylist = dialogView.findViewById<RecyclerView>(R.id.rvPlaylist)
         val etSearch = dialogView.findViewById<EditText>(R.id.etSearchSong)
+        val btnTabAll = dialogView.findViewById<Button>(R.id.btnTabAll)
+        val btnTabFavorites = dialogView.findViewById<Button>(R.id.btnTabFavorites)
 
         val currentId = s.getCurrentSong()?.id ?: -1L
-        val adapter = SongAdapter(s.playlist, currentId) { selectedSong ->
+        val adapter = SongAdapter(s.playlist, currentId, s.favoriteIds) { selectedSong ->
             val actualIdx = s.playlist.indexOfFirst { it.id == selectedSong.id }
             if (actualIdx >= 0) {
                 s.loadTrack(actualIdx, autoPlay = true)
@@ -494,6 +526,21 @@ class MainActivity : AppCompatActivity() {
 
         rvPlaylist.layoutManager = LinearLayoutManager(this)
         rvPlaylist.adapter = adapter
+
+        btnTabAll.text = "全部 (${s.playlist.size})"
+        btnTabFavorites.text = "❤️ 我喜欢 (${s.favoriteIds.size})"
+
+        btnTabAll.setOnClickListener {
+            adapter.setFilterFavorites(false)
+            btnTabAll.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            btnTabFavorites.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+        }
+
+        btnTabFavorites.setOnClickListener {
+            adapter.setFilterFavorites(true)
+            btnTabFavorites.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            btnTabAll.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+        }
 
         etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
