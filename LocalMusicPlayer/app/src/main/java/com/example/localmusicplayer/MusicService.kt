@@ -23,10 +23,15 @@ class MusicService : Service() {
     var currentTrackIndex = 0
     var isPlaying = false
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
-    var currentSpeed = 1.0f // 播放倍速
+    var currentSpeed = 1.0f
 
+    // 睡眠定时器相关状态
     var sleepRemainingSeconds: Int = 0
     var stopAfterCurrentTrack: Boolean = false
+
+    // 洗牌随机播放队列
+    private val shuffleList = mutableListOf<Int>()
+    private var shufflePointer = -1
 
     var onStateChangedListener: OnStateChangedListener? = null
 
@@ -91,6 +96,7 @@ class MusicService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        resetShuffleList()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -102,6 +108,23 @@ class MusicService : Service() {
             ACTION_TOGGLE -> togglePlayPause()
         }
         return START_NOT_STICKY
+    }
+
+    // 重置洗牌列表（确保当前歌曲在最前面，其他乱序）
+    fun resetShuffleList() {
+        if (playlist.isEmpty()) {
+            shuffleList.clear()
+            shufflePointer = -1
+            return
+        }
+        val pool = playlist.indices.toMutableList()
+        pool.shuffle()
+        // 将当前歌曲移到首位避免立即重复
+        pool.remove(currentTrackIndex)
+        shuffleList.clear()
+        shuffleList.add(currentTrackIndex)
+        shuffleList.addAll(pool)
+        shufflePointer = 0
     }
 
     fun setSpeed(speed: Float) {
@@ -158,7 +181,6 @@ class MusicService : Service() {
                     setOnCompletionListener { onTrackCompletion() }
                 }
             }
-            // 恢复当前倍速
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && currentSpeed != 1.0f) {
                 mediaPlayer?.let { it.playbackParams = it.playbackParams.setSpeed(currentSpeed) }
             }
@@ -205,8 +227,25 @@ class MusicService : Service() {
 
     fun playNext() {
         if (playlist.isEmpty()) return
+
         val nextIndex = when (playMode) {
-            2 -> Random.nextInt(playlist.size)
+            2 -> {
+                // 随机模式：按洗牌队列向下取歌，播完一轮再重洗
+                if (shuffleList.size != playlist.size) {
+                    resetShuffleList()
+                }
+                shufflePointer++
+                if (shufflePointer >= shuffleList.size) {
+                    resetShuffleList()
+                    // 确保换轮时不和上一首相同
+                    if (shuffleList.size > 1 && shuffleList[0] == currentTrackIndex) {
+                        shufflePointer = 1
+                    } else {
+                        shufflePointer = 0
+                    }
+                }
+                shuffleList[shufflePointer]
+            }
             else -> (currentTrackIndex + 1) % playlist.size
         }
         loadTrack(nextIndex, autoPlay = true)
@@ -214,7 +253,24 @@ class MusicService : Service() {
 
     fun playPrevious() {
         if (playlist.isEmpty()) return
-        val prevIndex = if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
+
+        val prevIndex = when (playMode) {
+            2 -> {
+                // 随机模式：回退到刚才实际听过的那一首歌
+                if (shuffleList.size != playlist.size) {
+                    resetShuffleList()
+                }
+                if (shufflePointer > 0) {
+                    shufflePointer--
+                    shuffleList[shufflePointer]
+                } else {
+                    // 若已在首位，向前循环到洗牌列表末尾
+                    shufflePointer = shuffleList.size - 1
+                    shuffleList[shufflePointer]
+                }
+            }
+            else -> if (currentTrackIndex - 1 < 0) playlist.size - 1 else currentTrackIndex - 1
+        }
         loadTrack(prevIndex, autoPlay = true)
     }
 
@@ -229,6 +285,7 @@ class MusicService : Service() {
         val toAdd = newSongs.filter { it.uriString !in existingUris }
         if (toAdd.isNotEmpty()) {
             playlist.addAll(toAdd)
+            resetShuffleList()
             onStateChangedListener?.onPlaylistUpdated()
         }
     }
@@ -243,14 +300,14 @@ class MusicService : Service() {
 
         when (playMode) {
             1 -> {
+                // 单曲循环
                 mediaPlayer?.seekTo(0)
                 play()
             }
-            2 -> {
-                val randIndex = Random.nextInt(playlist.size)
-                loadTrack(randIndex, autoPlay = true)
+            else -> {
+                // 列表循环与随机播放均统一复用 playNext()
+                playNext()
             }
-            else -> playNext()
         }
     }
 
