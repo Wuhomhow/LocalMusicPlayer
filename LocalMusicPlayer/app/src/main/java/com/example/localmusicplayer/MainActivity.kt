@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
     private var currentLyricIndex = -1
     private var isLyricsVisible = false
 
-    private val speedList = listOf(1.0f, 1.25f, 1.5f, 2.0f, 0.75f)
+    private val speedList = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -85,12 +85,10 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 override fun onSleepTimerTick(remainingSeconds: Int) {
-                    updateSleepTimerButton(remainingSeconds)
+                    updateSleepBadge(remainingSeconds)
                 }
 
-                override fun onSpeedChanged(speed: Float) {
-                    binding.btnSpeed.text = "${speed}x"
-                }
+                override fun onSpeedChanged(speed: Float) {}
             }
 
             s.getCurrentSong()?.let { currentSong ->
@@ -110,9 +108,7 @@ class MainActivity : AppCompatActivity() {
                 if (!discAnimator.isStarted) discAnimator.start()
             }
             updateModeIcon(s.playMode)
-            binding.btnSpeed.text = "${s.currentSpeed}x"
-
-            updateSleepTimerButton(s.sleepRemainingSeconds)
+            updateSleepBadge(s.sleepRemainingSeconds)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -240,15 +236,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        binding.btnSpeed.setOnClickListener {
-            musicService?.let { s ->
-                val nextIdx = (speedList.indexOf(s.currentSpeed) + 1) % speedList.size
-                val nextSpeed = speedList[nextIdx]
-                s.setSpeed(nextSpeed)
-                Toast.makeText(this, "播放倍速已设为 ${nextSpeed}x", Toast.LENGTH_SHORT).show()
-            }
-        }
-
         binding.seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) {
@@ -269,13 +256,71 @@ class MainActivity : AppCompatActivity() {
             showPlaylistBottomSheet()
         }
 
-        binding.btnScanLocal.setOnClickListener {
+        // 点击右上角设置按钮打开抽屉菜单
+        binding.btnSettings.setOnClickListener {
+            showSettingsBottomSheet()
+        }
+
+        // 点击顶部倒计时小胶囊也可以直接调整定时
+        binding.tvSleepBadge.setOnClickListener {
+            showSleepTimerDialog()
+        }
+    }
+
+    // --- 设置底栏抽屉 ---
+    private fun showSettingsBottomSheet() {
+        val s = musicService ?: return
+        val dialog = BottomSheetDialog(this)
+        val dialogView = layoutInflater.inflate(R.layout.dialog_settings, null)
+
+        val tvScanSubtitle = dialogView.findViewById<TextView>(R.id.tvScanSubtitle)
+        val tvSleepSubtitle = dialogView.findViewById<TextView>(R.id.tvSleepSubtitle)
+        val tvSpeedSubtitle = dialogView.findViewById<TextView>(R.id.tvSpeedSubtitle)
+
+        tvScanSubtitle.text = "已载入 ${s.playlist.size} 首歌曲（内置 + 本地）"
+        tvSpeedSubtitle.text = "当前播放倍速: ${s.currentSpeed}x"
+
+        if (s.stopAfterCurrentTrack) {
+            tvSleepSubtitle.text = "已开启：当前歌曲播放完毕后停止"
+        } else if (s.sleepRemainingSeconds > 0) {
+            val m = s.sleepRemainingSeconds / 60
+            val sec = s.sleepRemainingSeconds % 60
+            tvSleepSubtitle.text = String.format(Locale.getDefault(), "剩余 %02d:%02d 后自动停止", m, sec)
+        } else {
+            tvSleepSubtitle.text = "未开启定时"
+        }
+
+        // 菜单项点击事件
+        dialogView.findViewById<View>(R.id.menuScanLocal).setOnClickListener {
+            dialog.dismiss()
             checkStoragePermissionAndScan()
         }
 
-        binding.btnSleepTimer.setOnClickListener {
+        dialogView.findViewById<View>(R.id.menuSleepTimer).setOnClickListener {
+            dialog.dismiss()
             showSleepTimerDialog()
         }
+
+        dialogView.findViewById<View>(R.id.menuSpeed).setOnClickListener {
+            dialog.dismiss()
+            showSpeedDialog()
+        }
+
+        dialog.setContentView(dialogView)
+        dialog.show()
+    }
+
+    private fun showSpeedDialog() {
+        val s = musicService ?: return
+        val speedLabels = arrayOf("0.75x", "1.0x (正常)", "1.25x", "1.5x", "2.0x")
+        AlertDialog.Builder(this)
+            .setTitle("播放倍速调节")
+            .setItems(speedLabels) { _, which ->
+                val selectedSpeed = speedList[which]
+                s.setSpeed(selectedSpeed)
+                Toast.makeText(this, "播放倍速已设为 ${selectedSpeed}x", Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     private fun showSleepTimerDialog() {
@@ -290,35 +335,34 @@ class MainActivity : AppCompatActivity() {
                     3 -> musicService?.startSleepTimer(60)
                     4 -> {
                         musicService?.setStopAfterCurrent(true)
-                        binding.btnSleepTimer.text = "播完停"
-                        binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+                        updateSleepBadge(0)
+                        Toast.makeText(this, "将在当前歌曲播放完毕后停止", Toast.LENGTH_SHORT).show()
                     }
                     5 -> {
                         musicService?.cancelSleepTimer()
-                        binding.btnSleepTimer.text = "定时关闭"
-                        binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+                        updateSleepBadge(0)
+                        Toast.makeText(this, "已取消定时关闭", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
             .show()
     }
 
-    // 优化后的按钮状态呈现
-    private fun updateSleepTimerButton(remainingSeconds: Int) {
+    // 仅在定时有效时展示顶部微型倒计时胶囊，平常隐藏
+    private fun updateSleepBadge(remainingSeconds: Int) {
         val s = musicService
         if (s != null && s.stopAfterCurrentTrack) {
-            binding.btnSleepTimer.text = "播完停"
-            binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            binding.tvSleepBadge.visibility = View.VISIBLE
+            binding.tvSleepBadge.text = "播完停"
             return
         }
         if (remainingSeconds > 0) {
             val minutes = remainingSeconds / 60
             val seconds = remainingSeconds % 60
-            binding.btnSleepTimer.text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-            binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+            binding.tvSleepBadge.visibility = View.VISIBLE
+            binding.tvSleepBadge.text = String.format(Locale.getDefault(), "⏱️ %02d:%02d", minutes, seconds)
         } else {
-            binding.btnSleepTimer.text = "定时关闭"
-            binding.btnSleepTimer.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
+            binding.tvSleepBadge.visibility = View.GONE
         }
     }
 
