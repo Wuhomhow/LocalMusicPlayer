@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
+import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
@@ -31,9 +33,13 @@ class MusicService : Service() {
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
     var currentSpeed = 1.0f
 
-    // 收藏歌曲 ID 集合
-    val favoriteIds = mutableSetOf<Long>()
+    // 硬件音效核心：均衡器与重低音
+    var equalizer: Equalizer? = null
+    var bassBoost: BassBoost? = null
+    var currentPresetIndex: Short = -1
+    var currentBassStrength: Short = 0
 
+    val favoriteIds = mutableSetOf<Long>()
     private var mediaSession: MediaSession? = null
 
     var sleepRemainingSeconds: Int = 0
@@ -116,6 +122,7 @@ class MusicService : Service() {
         setupMediaSession()
         loadSavedLocalSongs()
         loadFavoritesFromStorage()
+        loadAudioEffectsFromStorage()
         loadLastPlaybackPosition()
         resetShuffleList()
     }
@@ -176,6 +183,74 @@ class MusicService : Service() {
             ACTION_TOGGLE -> togglePlayPause()
         }
         return START_NOT_STICKY
+    }
+
+    // --- 音效均衡器与低音初始化及控制 ---
+    private fun setupAudioEffects() {
+        val sessionId = mediaPlayer?.audioSessionId ?: return
+        if (sessionId == 0) return
+        try {
+            equalizer?.release()
+            bassBoost?.release()
+
+            equalizer = Equalizer(0, sessionId).apply {
+                enabled = true
+                if (currentPresetIndex in 0 until numberOfPresets) {
+                    usePreset(currentPresetIndex)
+                }
+            }
+
+            bassBoost = BassBoost(0, sessionId).apply {
+                enabled = true
+                if (strengthSupported) {
+                    setStrength(currentBassStrength)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun setEqualizerPreset(presetIndex: Short) {
+        currentPresetIndex = presetIndex
+        try {
+            equalizer?.usePreset(presetIndex)
+            saveAudioEffectsToStorage()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun setBassBoostStrength(strength: Short) {
+        currentBassStrength = strength
+        try {
+            bassBoost?.setStrength(strength)
+            saveAudioEffectsToStorage()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun saveAudioEffectsToStorage() {
+        try {
+            val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putInt("eq_preset", currentPresetIndex.toInt())
+                .putInt("eq_bass", currentBassStrength.toInt())
+                .apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadAudioEffectsFromStorage() {
+        try {
+            val prefs = getSharedPreferences("music_prefs", Context.MODE_PRIVATE)
+            currentPresetIndex = prefs.getInt("eq_preset", -1).toShort()
+            currentBassStrength = prefs.getInt("eq_bass", 0).toShort()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     fun toggleFavorite(songId: Long): Boolean {
@@ -266,6 +341,8 @@ class MusicService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && currentSpeed != 1.0f) {
                 mediaPlayer?.let { it.playbackParams = it.playbackParams.setSpeed(currentSpeed) }
             }
+            // 挂载硬件均衡器与低音
+            setupAudioEffects()
         } catch (e: Exception) {
             e.printStackTrace()
             return
@@ -539,6 +616,10 @@ class MusicService : Service() {
         super.onDestroy()
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(sleepTimerRunnable)
+        equalizer?.release()
+        equalizer = null
+        bassBoost?.release()
+        bassBoost = null
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
