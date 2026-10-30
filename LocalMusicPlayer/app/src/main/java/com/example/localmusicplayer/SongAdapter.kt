@@ -11,7 +11,8 @@ class SongAdapter(
     private val masterSongs: List<Song>,
     private var currentSongId: Long,
     private val favoriteIds: Set<Long>,
-    private val onItemClick: (Song) -> Unit
+    private val onItemClick: (Song) -> Unit,
+    private val onItemLongClick: (Song) -> Unit
 ) : RecyclerView.Adapter<SongAdapter.SongViewHolder>() {
 
     private var displaySongs: MutableList<Song> = masterSongs.toMutableList()
@@ -43,8 +44,15 @@ class SongAdapter(
             holder.tvTitle.setTextColor(ContextCompat.getColor(holder.itemView.context, R.color.text_primary))
         }
 
+        // 点击播放
         holder.itemView.setOnClickListener {
             onItemClick(song)
+        }
+
+        // 长按触发移除管理
+        holder.itemView.setOnLongClickListener {
+            onItemLongClick(song)
+            true
         }
     }
 
