@@ -401,7 +401,6 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    // --- 音效均衡器与低音调节面板 ---
     private fun showEqualizerBottomSheet() {
         val s = musicService ?: return
         val dialog = BottomSheetDialog(this)
@@ -592,6 +591,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // 播放列表底栏（支持长按弹出确认移除对话框）
     private fun showPlaylistBottomSheet() {
         val s = musicService ?: return
         val dialog = BottomSheetDialog(this)
@@ -602,13 +602,33 @@ class MainActivity : AppCompatActivity() {
         val btnTabFavorites = dialogView.findViewById<Button>(R.id.btnTabFavorites)
 
         val currentId = s.getCurrentSong()?.id ?: -1L
-        val adapter = SongAdapter(s.playlist, currentId, s.favoriteIds) { selectedSong ->
-            val actualIdx = s.playlist.indexOfFirst { it.id == selectedSong.id }
-            if (actualIdx >= 0) {
-                s.loadTrack(actualIdx, autoPlay = true)
+        lateinit var adapter: SongAdapter
+        adapter = SongAdapter(
+            masterSongs = s.playlist,
+            currentSongId = currentId,
+            favoriteIds = s.favoriteIds,
+            onItemClick = { selectedSong ->
+                val actualIdx = s.playlist.indexOfFirst { it.id == selectedSong.id }
+                if (actualIdx >= 0) {
+                    s.loadTrack(actualIdx, autoPlay = true)
+                }
+                dialog.dismiss()
+            },
+            onItemLongClick = { songToRemove ->
+                AlertDialog.Builder(this)
+                    .setTitle("从歌单中移除")
+                    .setMessage("确定要将《${songToRemove.title}》从当前播放列表中移除吗？")
+                    .setPositiveButton("确认移除") { _, _ ->
+                        s.removeSong(songToRemove)
+                        btnTabAll.text = "全部 (${s.playlist.size})"
+                        btnTabFavorites.text = "❤️ 我喜欢 (${s.favoriteIds.size})"
+                        adapter.filter(etSearch.text?.toString().orEmpty())
+                        Toast.makeText(this, "已移除《${songToRemove.title}》", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
             }
-            dialog.dismiss()
-        }
+        )
 
         rvPlaylist.layoutManager = LinearLayoutManager(this)
         rvPlaylist.adapter = adapter
