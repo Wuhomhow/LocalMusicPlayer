@@ -5,8 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
@@ -33,7 +38,21 @@ class MusicService : Service() {
     var playMode = 0 // 0: 列表循环, 1: 单曲循环, 2: 随机播放
     var currentSpeed = 1.0f
 
-    // 硬件音效核心：均衡器与重低音
+    // 音频焦点与防拔出外放管理
+    private var audioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
+    private var resumeOnFocusGain = false
+    private var isNoisyReceiverRegistered = false
+
+    // 耳机断开防外放广播接收器
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                pause()
+            }
+        }
+    }
+
     var equalizer: Equalizer? = null
     var bassBoost: BassBoost? = null
     var currentPresetIndex: Short = -1
@@ -110,6 +129,34 @@ class MusicService : Service() {
         }
     }
 
+    // 音频焦点监听器（处理电话呼入、挂断、导航语音压低）
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnFocusGain = false
+                pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                if (isPlaying) {
+                    resumeOnFocusGain = true
+                    pause()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // 导航播报时压低音量至 20%
+                mediaPlayer?.setVolume(0.2f, 0.2f)
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                // 恢复正常音量
+                mediaPlayer?.setVolume(1.0f, 1.0f)
+                if (resumeOnFocusGain) {
+                    resumeOnFocusGain = false
+                    play()
+                }
+            }
+        }
+    }
+
     inner class MusicBinder : Binder() {
         fun getService(): MusicService = this@MusicService
     }
@@ -118,6 +165,7 @@ class MusicService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
         createNotificationChannel()
         setupMediaSession()
         loadSavedLocalSongs()
@@ -125,6 +173,50 @@ class MusicService : Service() {
         loadAudioEffectsFromStorage()
         loadLastPlaybackPosition()
         resetShuffleList()
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        val am = audioManager ?: return true
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val playbackAttributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(playbackAttributes)
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener(focusChangeListener, handler)
+                .build()
+            focusRequest = request
+            am.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus(focusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+    }
+
+    private fun abandonAudioFocus() {
+        val am = audioManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            focusRequest?.let { am.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            am.abandonAudioFocus(focusChangeListener)
+        }
+    }
+
+    private fun registerNoisyReceiver() {
+        if (!isNoisyReceiverRegistered) {
+            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            isNoisyReceiverRegistered = true
+        }
+    }
+
+    private fun unregisterNoisyReceiver() {
+        if (isNoisyReceiverRegistered) {
+            try { unregisterReceiver(noisyReceiver) } catch (e: Exception) {}
+            isNoisyReceiverRegistered = false
+        }
     }
 
     private fun setupMediaSession() {
@@ -185,7 +277,6 @@ class MusicService : Service() {
         return START_NOT_STICKY
     }
 
-    // --- 音效均衡器与低音初始化及控制 ---
     private fun setupAudioEffects() {
         val sessionId = mediaPlayer?.audioSessionId ?: return
         if (sessionId == 0) return
@@ -341,7 +432,6 @@ class MusicService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && currentSpeed != 1.0f) {
                 mediaPlayer?.let { it.playbackParams = it.playbackParams.setSpeed(currentSpeed) }
             }
-            // 挂载硬件均衡器与低音
             setupAudioEffects()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -365,12 +455,15 @@ class MusicService : Service() {
 
     fun play() {
         if (playlist.isEmpty()) return
+        if (!requestAudioFocus()) return
+
         if (mediaPlayer == null) {
             loadTrack(currentTrackIndex, autoPlay = true)
             return
         }
         mediaPlayer?.start()
         isPlaying = true
+        registerNoisyReceiver()
         updatePlaybackState()
         onStateChangedListener?.onPlayStateChanged(true)
         handler.post(progressRunnable)
@@ -380,6 +473,8 @@ class MusicService : Service() {
     fun pause() {
         mediaPlayer?.pause()
         isPlaying = false
+        unregisterNoisyReceiver()
+        abandonAudioFocus()
         updatePlaybackState()
         onStateChangedListener?.onPlayStateChanged(false)
         handler.removeCallbacks(progressRunnable)
@@ -451,6 +546,39 @@ class MusicService : Service() {
             saveLocalSongsToStorage()
             onStateChangedListener?.onPlaylistUpdated()
         }
+    }
+
+    // 从歌单中移除一首歌曲
+    fun removeSong(song: Song): Boolean {
+        val idx = playlist.indexOfFirst { it.id == song.id }
+        if (idx == -1) return false
+
+        val isRemovingCurrent = (idx == currentTrackIndex)
+        playlist.removeAt(idx)
+        favoriteIds.remove(song.id)
+        saveFavoritesToStorage()
+        saveLocalSongsToStorage()
+        resetShuffleList()
+
+        if (playlist.isEmpty()) {
+            pause()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            currentTrackIndex = 0
+            onStateChangedListener?.onPlaylistUpdated()
+            return true
+        }
+
+        if (isRemovingCurrent) {
+            currentTrackIndex = if (idx >= playlist.size) 0 else idx
+            loadTrack(currentTrackIndex, autoPlay = isPlaying)
+        } else if (idx < currentTrackIndex) {
+            currentTrackIndex--
+        }
+
+        saveLastPlaybackPosition(currentTrackIndex)
+        onStateChangedListener?.onPlaylistUpdated()
+        return true
     }
 
     private fun saveLocalSongsToStorage() {
@@ -614,6 +742,8 @@ class MusicService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        unregisterNoisyReceiver()
+        abandonAudioFocus()
         handler.removeCallbacks(progressRunnable)
         handler.removeCallbacks(sleepTimerRunnable)
         equalizer?.release()
