@@ -25,6 +25,8 @@ import android.view.animation.LinearInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.Button
 import android.widget.EditText
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -283,13 +285,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ❤️ 收藏按钮点击事件（带弹性缩放动效）
         binding.btnFavorite.setOnClickListener {
             val s = musicService ?: return@setOnClickListener
             val song = s.getCurrentSong() ?: return@setOnClickListener
             val isNowFav = s.toggleFavorite(song.id)
 
-            // 弹性动画
             val pvhX = PropertyValuesHolder.ofFloat(View.SCALE_X, 0.8f, 1.3f, 1.0f)
             val pvhY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.8f, 1.3f, 1.0f)
             ObjectAnimator.ofPropertyValuesHolder(binding.btnFavorite, pvhX, pvhY).apply {
@@ -350,9 +350,22 @@ class MainActivity : AppCompatActivity() {
         val tvScanSubtitle = dialogView.findViewById<TextView>(R.id.tvScanSubtitle)
         val tvSleepSubtitle = dialogView.findViewById<TextView>(R.id.tvSleepSubtitle)
         val tvSpeedSubtitle = dialogView.findViewById<TextView>(R.id.tvSpeedSubtitle)
+        val tvEqualizerSubtitle = dialogView.findViewById<TextView>(R.id.tvEqualizerSubtitle)
 
         tvScanSubtitle.text = "已载入 ${s.playlist.size} 首歌曲（内置 + 本地）"
         tvSpeedSubtitle.text = "当前播放倍速: ${s.currentSpeed}x"
+
+        val bassPct = s.currentBassStrength / 10
+        val presetName = if (s.currentPresetIndex >= 0) {
+            try {
+                translatePresetName(s.equalizer?.getPresetName(s.currentPresetIndex) ?: "自定义")
+            } catch (e: Exception) {
+                "自定义"
+            }
+        } else {
+            "标准原声"
+        }
+        tvEqualizerSubtitle.text = "当前: $presetName / 重低音: $bassPct%"
 
         if (s.stopAfterCurrentTrack) {
             tvSleepSubtitle.text = "已开启：当前歌曲播放完毕后停止"
@@ -379,8 +392,82 @@ class MainActivity : AppCompatActivity() {
             showSpeedDialog()
         }
 
+        dialogView.findViewById<View>(R.id.menuEqualizer).setOnClickListener {
+            dialog.dismiss()
+            showEqualizerBottomSheet()
+        }
+
         dialog.setContentView(dialogView)
         dialog.show()
+    }
+
+    // --- 音效均衡器与低音调节面板 ---
+    private fun showEqualizerBottomSheet() {
+        val s = musicService ?: return
+        val dialog = BottomSheetDialog(this)
+        val dialogView = layoutInflater.inflate(R.layout.dialog_equalizer, null)
+
+        val tvBassStrength = dialogView.findViewById<TextView>(R.id.tvBassStrength)
+        val sbBassBoost = dialogView.findViewById<SeekBar>(R.id.sbBassBoost)
+        val rgPresets = dialogView.findViewById<RadioGroup>(R.id.rgPresets)
+
+        sbBassBoost.progress = s.currentBassStrength.toInt()
+        tvBassStrength.text = "${s.currentBassStrength / 10}%"
+
+        sbBassBoost.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) {
+                    s.setBassBoostStrength(progress.toShort())
+                    tvBassStrength.text = "${progress / 10}%"
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        val eq = s.equalizer
+        if (eq != null) {
+            val numPresets = eq.numberOfPresets
+            for (i in 0 until numPresets) {
+                val rawName = try {
+                    eq.getPresetName(i.toShort())
+                } catch (e: Exception) {
+                    "音效 $i"
+                }
+                val localizedName = translatePresetName(rawName)
+
+                val rb = RadioButton(this).apply {
+                    id = View.generateViewId()
+                    text = localizedName
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    isChecked = (i.toShort() == s.currentPresetIndex)
+                    setOnClickListener {
+                        s.setEqualizerPreset(i.toShort())
+                        Toast.makeText(this@MainActivity, "音效已切换为: $localizedName", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                rgPresets.addView(rb)
+            }
+        }
+
+        dialog.setContentView(dialogView)
+        dialog.show()
+    }
+
+    private fun translatePresetName(name: String): String {
+        return when (name.lowercase()) {
+            "normal" -> "标准原声 (Normal)"
+            "classical" -> "古典优雅 (Classical)"
+            "dance" -> "舞曲动感 (Dance)"
+            "flat" -> "原声平直 (Flat)"
+            "folk" -> "清澈民谣 (Folk)"
+            "heavy metal" -> "重金属 (Heavy Metal)"
+            "hip hop" -> "说唱嘻哈 (Hip Hop)"
+            "jazz" -> "爵士乐 (Jazz)"
+            "pop" -> "流行人声 (Pop)"
+            "rock" -> "摇滚震撼 (Rock)"
+            else -> name
+        }
     }
 
     private fun showSpeedDialog() {
@@ -505,7 +592,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 播放列表底栏（支持【全部歌曲】与【❤️ 我喜欢】分类切换与搜索）
     private fun showPlaylistBottomSheet() {
         val s = musicService ?: return
         val dialog = BottomSheetDialog(this)
